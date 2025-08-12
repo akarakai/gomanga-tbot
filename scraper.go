@@ -240,6 +240,8 @@ func (s *weebCentralScraper) FindImgUrlsOfChapter(chapterURL string) ([]string, 
 			imgs = append(imgs, "")
 			continue
 		}
+
+		log.Println(src)
 		imgs = append(imgs, src)
 	}
 

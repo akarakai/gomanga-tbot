@@ -15,7 +15,7 @@ func getScraper() *weebCentralScraper {
 	}
 
 	cfg := Configuration{
-		headless:    true,
+		headless:    false,
 		isOptimized: false,
 		browserType: Chromium,
 	}
