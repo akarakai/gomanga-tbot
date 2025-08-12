@@ -5,44 +5,102 @@ import (
 	"testing"
 )
 
-// TODO controllare nello scraper se link inizia con weebcentral
-func TestFindListOfChapters(t *testing.T) {
-	s := getScraper()
-	mangaUrl := "https://weebcentral.com/series/01J76XYFXM8RHFVVCN0PJBPAT8/Hikaru-ga-Shinda-Natsu"
-	nChaps := 3
-
-	t.Run("ChaptersFound", func(t *testing.T) {
-		chaps, err := s.FindListOfChapters(mangaUrl, nChaps)
-		if err != nil {
-			t.Fatalf("Expected no error, got: %v", err)
-		}
-
-		if len(chaps) != nChaps {
-			t.Errorf("Expected %d chapters, got %d", nChaps, len(chaps))
-		}
-
-		if len(chaps) > 0 && chaps[0].mangaUrl != mangaUrl {
-			t.Errorf("Expected mangaUrl %s, got %s", mangaUrl, chaps[0].mangaUrl)
-		}
-	})
-
-	t.Run("InvalidMangaUrl", func(t *testing.T) {
-		mangaUrl := mangaUrl + "hehe"
-
-	})
-
-}
+var cachedScraper *weebCentralScraper
 
 func getScraper() *weebCentralScraper {
+	if cachedScraper != nil {
+		return cachedScraper
+	}
+
 	cfg := Configuration{
-		headless:    true,
+		headless:    false,
 		isOptimized: false,
 		browserType: Chromium,
 	}
 
-	s, err := NewWebCentralScraper(cfg)
+	s, err := NewWeebCentralScraper(cfg)
 	if err != nil {
 		log.Fatalf("failed to initialize scraper: %v", err)
 	}
+
+	cachedScraper = s
 	return s
+}
+
+func TestNewWeebCentralScraper(t *testing.T) {
+	scraper := getScraper()
+
+	if scraper == nil {
+		t.Fatal("Expected scraper instance, got nil")
+	}
+}
+
+func TestFindListOfMangas(t *testing.T) {
+	s := getScraper()
+
+	t.Run("GoodQuery", func(t *testing.T) {
+		query := "Naruto"
+		mangas, err := s.FindListOfMangas(query)
+		if err != nil {
+			t.Errorf("Failed to find list of mangas: %v", err)
+		}
+		if len(mangas) == 0 {
+			t.Errorf("No mangas found. Even if Naruto should exist")
+		}
+	})
+
+	t.Run("EmptyQuery", func(t *testing.T) {
+		bad := ""
+		mangas, err := s.FindListOfMangas(bad)
+		if err == nil {
+			t.Error("Expected error, got nil")
+		}
+		if mangas != nil {
+			t.Error("Expected nil mangas")
+		}
+	})
+}
+
+func TestFindListOfChapters_Extra(t *testing.T) {
+	s := getScraper()
+	validMangaUrl := "https://weebcentral.com/series/01J76XYFXM8RHFVVCN0PJBPAT8/Hikaru-ga-Shinda-Natsu"
+
+	t.Run("ZeroChaptersRequested", func(t *testing.T) {
+		chapters, err := s.FindListOfChapters(validMangaUrl, 0)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(chapters) != 0 {
+			t.Errorf("Expected 0 chapters, got %d", len(chapters))
+		}
+	})
+
+	t.Run("RequestMoreChaptersThanAvailable", func(t *testing.T) {
+		nChaps := 1000
+		chapters, err := s.FindListOfChapters(validMangaUrl, nChaps)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(chapters) > nChaps {
+			t.Errorf("Returned more chapters (%d) than requested (%d)", len(chapters), nChaps)
+		}
+	})
+
+	t.Run("EmptyMangaURL", func(t *testing.T) {
+		_, err := s.FindListOfChapters("", 5)
+		if err == nil {
+			t.Errorf("Expected error for empty URL, got nil")
+		}
+	})
+
+	t.Run("NilPageInitialization", func(t *testing.T) {
+		s.page = nil
+		chapters, err := s.FindListOfChapters(validMangaUrl, 2)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+		if len(chapters) == 0 {
+			t.Errorf("Expected some chapters, got 0")
+		}
+	})
 }

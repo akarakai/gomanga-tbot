@@ -15,18 +15,18 @@ func main() {
 		browserType: Chromium,
 	}
 
-	scraper, err := NewWebCentralScraper(cfg)
+	scraper, err := NewWeebCentralScraper(cfg)
 	if err != nil {
 		log.Fatalln("FATAL ERROR")
 		return
 	}
 
-	mangas, _ := scraper.FindListOfMangas("One piece");
+	mangas, err := scraper.FindListOfMangas("One piece")
+	if err != nil {
+		log.Fatalln("FATAL ERROR")
+	}
 
-	manga := mangas[0];
-	scraper.FindListOfChapters(manga.url, 3);
-	
+	manga := mangas[0]
+	scraper.FindListOfChapters(manga.url, 3)
 
-
-}	
-
+}

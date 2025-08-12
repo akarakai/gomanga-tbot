@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/playwright-community/playwright-go"
 )
 
-const WEEB_CENTRAL_BASE_URL = "https://weebcentral.com"
-const WINDOW_HEIGHT = 400
-const WINDOW_WIDTH = 400
+const WeebCentralBaseURL = "https://weebcentral.com"
+const WindowHeight = 400
+const WindowWidth = 400
 
 // Browser type as ENUM
 type BrowserType int
@@ -38,9 +40,9 @@ type Configuration struct {
 	browserType BrowserType
 }
 
-// NewWebCentralScraper creates a new instance of WeebCentralScraper and returns its pointer.
+// NewWeebCentralScraper creates a new instance of WeebCentralScraper and returns its pointer.
 // this function will also open a new page from a context
-func NewWebCentralScraper(cfg Configuration) (*weebCentralScraper, error) {
+func NewWeebCentralScraper(cfg Configuration) (*weebCentralScraper, error) {
 	pw, err := playwright.Run()
 	if err != nil {
 		return nil, err
@@ -80,6 +82,10 @@ func NewWebCentralScraper(cfg Configuration) (*weebCentralScraper, error) {
 //
 // Returns an empty slice if no manga is found or if it encounters an error
 func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
+	if query == "" {
+		log.Println("query is empty")
+		return nil, errors.New("query is empty")
+	}
 	const XPATH_MANGAS_CONTAINER = "/html/body/header/section[1]/div[2]/section/div[2]"
 	const ID_SEARCH_BOX = "#quick-search-input"
 
@@ -90,15 +96,15 @@ func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 
 	s.page = page
 
-	log.Printf("Going to %s\n", WEEB_CENTRAL_BASE_URL)
-	r, err := s.page.Goto(WEEB_CENTRAL_BASE_URL, playwright.PageGotoOptions{
+	log.Printf("Going to %s\n", WeebCentralBaseURL)
+	r, err := s.page.Goto(WeebCentralBaseURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("problem navigating to %s", WEEB_CENTRAL_BASE_URL)
+		return nil, fmt.Errorf("problem navigating to %s", WeebCentralBaseURL)
 	}
 	if !r.Ok() {
-		return nil, fmt.Errorf("problem navigating to %s. Status: %s", WEEB_CENTRAL_BASE_URL, r.StatusText())
+		return nil, fmt.Errorf("problem navigating to %s. Status: %s", WeebCentralBaseURL, r.StatusText())
 	}
 
 	log.Println("Looking for the search bar...")
@@ -108,24 +114,27 @@ func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 		return nil, err
 	}
 	container := s.page.Locator(fmt.Sprintf("xpath=%s", XPATH_MANGAS_CONTAINER))
+	err = container.WaitFor()
+	if err != nil {
+		return nil, err
+	}
 	links := container.Locator("a")
-	links.WaitFor()
 
 	locators, err := links.All()
 	if err != nil {
 		log.Fatalf("Failed to get locators: %v", err)
-		return nil, err;
+		return nil, err
 	}
 
-	mangas := make([]Manga, 0, 10);
+	mangas := make([]Manga, 0, 10)
 	for _, aLoc := range locators {
 		// for each a tag, find the url and the name
-		title, _ := aLoc.InnerText();
-		href, _ := aLoc.GetAttribute("href");
-		
+		title, _ := aLoc.InnerText()
+		href, _ := aLoc.GetAttribute("href")
+
 		mangas = append(mangas, Manga{
 			title: title,
-			url: href,
+			url:   href,
 		})
 	}
 
@@ -134,38 +143,64 @@ func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 }
 
 // FindListOfChapters finds the required number of most recent chapters from a manga.
-func (s *weebCentralScraper) FindListOfChapters(mangaUrl string, nChaps int) ([]Chapter, error) {
-	const ID_CHAPTER_LIST = "#chapter-list";
+func (s *weebCentralScraper) FindListOfChapters(mangaURL string, nChaps int) ([]Chapter, error) {
+	if !strings.HasPrefix(mangaURL, WeebCentralBaseURL) {
+		return nil, fmt.Errorf("url %q does not have prefix %q", mangaURL, WeebCentralBaseURL)
+	}
+
+	const chapterListSelector = "#chapter-list"
 
 	if s.page == nil {
-		log.Println("Page is empty. Creating a new one.");
-		page, err := s.context.NewPage();
-		if err != nil { return nil, fmt.Errorf("error creating a page") }
-		s.page = page;
+		log.Println("Page is empty. Creating a new one.")
+		page, err := s.context.NewPage()
+		if err != nil {
+			return nil, fmt.Errorf("error creating a new page: %w", err)
+		}
+		s.page = page
 	}
-	// page already esists
-	log.Printf("Going to the manga with url: %s", mangaUrl);
-	resp, err := s.page.Goto(mangaUrl);
+
+	log.Printf("Navigating to manga URL: %s", mangaURL)
+	resp, err := s.page.Goto(mangaURL)
 	if err != nil {
-		return nil, fmt.Errorf("problem navigating to %s", WEEB_CENTRAL_BASE_URL)
+		return nil, fmt.Errorf("error navigating to %s: %w", mangaURL, err)
 	}
 	if !resp.Ok() {
-		return nil, fmt.Errorf("problem navigating to %s. Status: %s", WEEB_CENTRAL_BASE_URL, resp.StatusText())
+		return nil, fmt.Errorf("received non-OK status %s for URL %s", resp.StatusText(), mangaURL)
 	}
 
-	chList, _ := s.page.Locator(ID_CHAPTER_LIST).Locator("a").All();
-	for _, a := range chList {
-		fmt.Println(a);
+	// Check for redirect to 404 page
+	if resp.URL() == "https://weebcentral.com/404" {
+		return nil, fmt.Errorf("manga with url %s was not found", mangaURL)
 	}
-	
-	
 
+	// Locate chapter elements
+	chapterDivs, err := s.page.Locator(chapterListSelector).Locator("div").All()
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate chapters: %w", err)
+	}
 
+	// Limit chapters if requested nChaps is less than found chapters
+	limit := nChaps
+	if limit > len(chapterDivs) {
+		limit = len(chapterDivs)
+	}
+	chapterDivs = chapterDivs[:limit]
 
-	return nil ,nil
+	chapters := make([]Chapter, 0, limit)
 
+	for _, chDiv := range chapterDivs {
+		title, date, href := extractChapterData(chDiv)
+		log.Printf("Extracted chapter: %s", title)
+		chapters = append(chapters, Chapter{
+			title:      title,
+			url:        href,
+			mangaUrl:   mangaURL,
+			releasedAt: date,
+		})
+	}
 
-} 
+	return chapters, nil
+}
 
 func (s *weebCentralScraper) CurrentUrl() string {
 	if s.page == nil { // this is an interface. TODO check better interface assertion
@@ -227,9 +262,44 @@ func getContextOptions() playwright.BrowserNewContextOptions {
 		// Images:           playwright.Bool(false), // Disable image loading
 		ColorScheme: playwright.ColorSchemeLight,
 		Viewport: &playwright.Size{
-			Width:  WINDOW_HEIGHT,
-			Height: WINDOW_WIDTH,
+			Width:  WindowHeight,
+			Height: WindowWidth,
 		},
 	}
 
+}
+
+func extractChapterData(divLoc playwright.Locator) (title string, releasedAt time.Time, href string) {
+	aLoc := divLoc.Locator("a")
+
+	href, err := aLoc.GetAttribute("href")
+	if err != nil {
+		log.Printf("Failed to find href attribute: %v", err)
+		href = ""
+	}
+
+	// Extract the datetime attribute from <time> inside <a>
+	timeLoc := aLoc.Locator("time")
+	dateStr, err := timeLoc.GetAttribute("datetime")
+	if err != nil {
+		log.Printf("Failed to find date attribute: %v", err)
+		releasedAt = time.Time{} // zero time
+	} else {
+		releasedAt, err = time.Parse(time.RFC3339Nano, dateStr)
+		if err != nil {
+			log.Printf("Failed to parse datetime %q: %v", dateStr, err)
+			releasedAt = time.Time{} // zero time
+		}
+	}
+
+	// Extract title from nested span elements
+	titleSpan, err := aLoc.Locator("span").Nth(1).Locator("span").Nth(0).InnerText()
+	if err != nil {
+		log.Printf("Failed to get title text: %v", err)
+		title = ""
+	} else {
+		title = titleSpan
+	}
+
+	return title, releasedAt, href
 }
