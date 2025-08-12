@@ -28,7 +28,8 @@ func TestDownloadPdfFromImageSrcs(t *testing.T) {
 		"https://hot.planeptune.us/manga/Berserk/Part2/0036-020.png",
 	}
 
-
-	
-
+	_, err := DownloadPdfFromImageSrcs(imgSrcs, "title")
+	if err != nil {
+		t.Errorf("there was an error: %s", err)
+	}
 }
