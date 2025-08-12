@@ -89,12 +89,12 @@ func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 	const XPATH_MANGAS_CONTAINER = "/html/body/header/section[1]/div[2]/section/div[2]"
 	const ID_SEARCH_BOX = "#quick-search-input"
 
-	page, err := s.context.NewPage()
-	if err != nil {
-		return nil, fmt.Errorf("error creating a page")
+	if s.page == nil {
+		log.Println("Page is empty. Creating a new one.")
+		if err := makeNewPage(s); err != nil {
+			return nil, err
+		}
 	}
-
-	s.page = page
 
 	log.Printf("Going to %s\n", WeebCentralBaseURL)
 	r, err := s.page.Goto(WeebCentralBaseURL, playwright.PageGotoOptions{
@@ -152,11 +152,9 @@ func (s *weebCentralScraper) FindListOfChapters(mangaURL string, nChaps int) ([]
 
 	if s.page == nil {
 		log.Println("Page is empty. Creating a new one.")
-		page, err := s.context.NewPage()
-		if err != nil {
-			return nil, fmt.Errorf("error creating a new page: %w", err)
+		if err := makeNewPage(s); err != nil {
+			return nil, err
 		}
-		s.page = page
 	}
 
 	log.Printf("Navigating to manga URL: %s", mangaURL)
@@ -200,6 +198,53 @@ func (s *weebCentralScraper) FindListOfChapters(mangaURL string, nChaps int) ([]
 	}
 
 	return chapters, nil
+}
+
+func (s *weebCentralScraper) FindImgUrlsOfChapter(chapterURL string) ([]string, error) {
+	if !strings.HasPrefix(chapterURL, WeebCentralBaseURL) {
+		return nil, fmt.Errorf("url %q does not have prefix %q", chapterURL, WeebCentralBaseURL)
+	}
+	if chapterURL == "" {
+		return nil, fmt.Errorf("chapterURL is empty")
+	}
+	if s.page == nil {
+		log.Println("Page is empty. Creating a new one.")
+		if err := makeNewPage(s); err != nil {
+			return nil, err
+		}
+	}
+
+	r, err := s.page.Goto(chapterURL)
+	if err != nil {
+		return nil, fmt.Errorf("error navigating to %s: %w", chapterURL, err)
+	}
+	if !r.Ok() {
+		return nil, fmt.Errorf("received non-OK status %s for URL %s", r.StatusText(), chapterURL)
+	}
+
+	const xpathImgsContainer = "/html/body/main/section[3]"
+	container := s.page.Locator(fmt.Sprintf("xpath=%s", xpathImgsContainer))
+	err = container.WaitFor()
+	if err != nil {
+		return nil, fmt.Errorf("container not found: %w", err)
+	}
+	imgList, err := container.Locator("img").All()
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate imgs: %w", err)
+	}
+
+	imgs := make([]string, 0, len(imgList))
+	for _, img := range imgList {
+		src, err := img.GetAttribute("src")
+		if err != nil {
+			imgs = append(imgs, "")
+			continue
+		}
+		imgs = append(imgs, src)
+	}
+
+	log.Printf("Found %d images", len(imgs))
+	return imgs, nil
 }
 
 func (s *weebCentralScraper) CurrentUrl() string {
@@ -302,4 +347,13 @@ func extractChapterData(divLoc playwright.Locator) (title string, releasedAt tim
 	}
 
 	return title, releasedAt, href
+}
+
+func makeNewPage(s *weebCentralScraper) error {
+	page, err := s.context.NewPage()
+	if err != nil {
+		return err
+	}
+	s.page = page
+	return nil
 }

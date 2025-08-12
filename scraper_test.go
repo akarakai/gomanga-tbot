@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+// TODO avoid to open a new instance of the scraper each time
+// maybe the logic should be done in the scraper itself
 var cachedScraper *weebCentralScraper
 
 func getScraper() *weebCentralScraper {
@@ -13,7 +15,7 @@ func getScraper() *weebCentralScraper {
 	}
 
 	cfg := Configuration{
-		headless:    false,
+		headless:    true,
 		isOptimized: false,
 		browserType: Chromium,
 	}
@@ -101,6 +103,36 @@ func TestFindListOfChapters_Extra(t *testing.T) {
 		}
 		if len(chapters) == 0 {
 			t.Errorf("Expected some chapters, got 0")
+		}
+	})
+}
+
+func TestFindImgUrlsOfChapter(t *testing.T) {
+	s := getScraper()
+	t.Run("GoodQuery", func(t *testing.T) {
+		chapterURL := "https://weebcentral.com/chapters/01J76XYYGMWHPGZ0EW6T7BAJKA"
+		url, err := s.FindImgUrlsOfChapter(chapterURL)
+		if err != nil {
+			t.Errorf("Failed to find urls of the chapter: %v", err)
+		}
+		if len(url) == 0 {
+			t.Errorf("No urls found")
+		}
+	})
+
+	t.Run("EmptyChapterURL", func(t *testing.T) {
+		chapterURL := ""
+		_, err := s.FindImgUrlsOfChapter(chapterURL)
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+	})
+
+	t.Run("WrongBaseUrl", func(t *testing.T) {
+		chapterURL := "https://mangadex.com/chapters/01J76XYYGMWHPGZ0EW6T7BAJKA"
+		_, err := s.FindImgUrlsOfChapter(chapterURL)
+		if err == nil {
+			t.Errorf("Expected error, got nil")
 		}
 	})
 }
