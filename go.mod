@@ -2,7 +2,10 @@ module github.com/akarakai/gomanga-tbot
 
 go 1.24.5
 
-require github.com/playwright-community/playwright-go v0.5200.0
+require (
+	github.com/playwright-community/playwright-go v0.5200.0
+	golang.org/x/tools v0.6.0
+)
 
 require (
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect

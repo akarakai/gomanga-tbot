@@ -95,7 +95,7 @@ func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("problem navigating to %s. Status: %s", WEEB_CENTRAL_BASE_URL, r.StatusText())
+		return nil, fmt.Errorf("problem navigating to %s", WEEB_CENTRAL_BASE_URL)
 	}
 	if !r.Ok() {
 		return nil, fmt.Errorf("problem navigating to %s. Status: %s", WEEB_CENTRAL_BASE_URL, r.StatusText())
@@ -132,6 +132,40 @@ func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 	log.Printf("Query \"%s\" gave %d results", query, len(mangas))
 	return mangas, nil
 }
+
+// FindListOfChapters finds the required number of most recent chapters from a manga.
+func (s *weebCentralScraper) FindListOfChapters(mangaUrl string, nChaps int) ([]Chapter, error) {
+	const ID_CHAPTER_LIST = "#chapter-list";
+
+	if s.page == nil {
+		log.Println("Page is empty. Creating a new one.");
+		page, err := s.context.NewPage();
+		if err != nil { return nil, fmt.Errorf("error creating a page") }
+		s.page = page;
+	}
+	// page already esists
+	log.Printf("Going to the manga with url: %s", mangaUrl);
+	resp, err := s.page.Goto(mangaUrl);
+	if err != nil {
+		return nil, fmt.Errorf("problem navigating to %s", WEEB_CENTRAL_BASE_URL)
+	}
+	if !resp.Ok() {
+		return nil, fmt.Errorf("problem navigating to %s. Status: %s", WEEB_CENTRAL_BASE_URL, resp.StatusText())
+	}
+
+	chList, _ := s.page.Locator(ID_CHAPTER_LIST).Locator("a").All();
+	for _, a := range chList {
+		fmt.Println(a);
+	}
+	
+	
+
+
+
+	return nil ,nil
+
+
+} 
 
 func (s *weebCentralScraper) CurrentUrl() string {
 	if s.page == nil { // this is an interface. TODO check better interface assertion

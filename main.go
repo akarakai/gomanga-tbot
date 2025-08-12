@@ -10,7 +10,7 @@ func main() {
 	log.SetOutput(os.Stdout)
 
 	cfg := Configuration{
-		headless:    false,
+		headless:    true,
 		isOptimized: false,
 		browserType: Chromium,
 	}
@@ -21,5 +21,12 @@ func main() {
 		return
 	}
 
-	scraper.FindListOfMangas("One piece")
-}
+	mangas, _ := scraper.FindListOfMangas("One piece");
+
+	manga := mangas[0];
+	scraper.FindListOfChapters(manga.url, 3);
+	
+
+
+}	
+
