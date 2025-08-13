@@ -9,6 +9,24 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
+type AddMangaConversationState int
+type ChatID int64
+
+const (
+	StartConversation AddMangaConversationState = iota
+	ChosenManga
+	ChoseWhatToDo
+)
+
+
+
+
+// stores (chatId, AddMangaConversationState)
+// TODO this is not thread safe
+var addMangaConvMap = make(map[ChatID]AddMangaConversationState)
+
+
+
 // StartTelegramBot starts the bot. Panics if the bot fails to start
 func StartTelegramBot(apiKey string) {
 	opt := []bot.Option{
@@ -22,6 +40,8 @@ func StartTelegramBot(apiKey string) {
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "info", bot.MatchTypeCommand, infoHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "add", bot.MatchTypeCommand, addHandler)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "add", bot.MatchTypeCommand, handleConversation)
+
 
 	Log.Infof("starting the bot")
 	b.Start(context.Background())
@@ -52,18 +72,19 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		Log.Error("Update message is nil")
 		return
 	}
-
 	if update.Message.From == nil {
 		Log.Error("Message.From is nil")
 		return
 	}
 
+	// this is step one from AddMangaConversationState
+
+
+
 	userId := update.Message.From.ID
-
 	Log.Infow("new add request", "userId", userId)
-
 	rawMsg := update.Message.Text
-	msg, err := parseMessage("/add", rawMsg)
+	msg, err := parseMessage(cmd, rawMsg)
 	if err != nil {
 		Log.Debugw("error in message of user", "err", err)
 		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
@@ -122,6 +143,40 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		return
 	}
 	Log.Infow("Add message sent successfully", "chatId", update.Message.Chat.ID)
+}
+
+// for now it supports only /add
+// maybe a more complex arch is needed for supporting conversations 
+// which start with different commands
+func conversationHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	// get the state from the map
+	chatId := ChatID(update.Message.Chat.ID)
+	state, ok := addMangaConvMap[chatId]
+	// handle no chatId saved
+	if !ok {
+
+	}
+}
+
+
+// first step for /add
+// /add <manga name>
+// replies the user with list of mangas
+func mangaToAddStep(ctx context.Context, b *bot.Bot, update *models.Update) {
+
+}
+
+// second step for /add
+// manage the chosen manga from the list
+// replies the user with list of actions (download, read online, nothing)
+func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
+
+}
+
+// final step for /add
+// user chooses what to do with the last manga
+func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
+
 }
 
 // /add One Piece => One Piece
