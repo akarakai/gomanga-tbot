@@ -9,8 +9,9 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-type AddMangaConversationState int
 type ChatID int64
+
+type AddMangaConversationState int
 
 const (
 	StartConversation AddMangaConversationState = iota
@@ -18,30 +19,32 @@ const (
 	ChoseWhatToDo
 )
 
+type CommandManga string
 
-
+const (
+	Download   = "Download"
+	ReadOnline = "Read Online"
+	DoNothing  = "Do Nothing"
+)
 
 // stores (chatId, AddMangaConversationState)
 // TODO this is not thread safe
 var addMangaConvMap = make(map[ChatID]AddMangaConversationState)
-
-
+var commandMangaMap = make(map[ChatID]CommandManga)
+var mangasMap = make(map[ChatID][]Manga)
+var chosenMangaMap = make(map[ChatID]Manga)
 
 // StartTelegramBot starts the bot. Panics if the bot fails to start
 func StartTelegramBot(apiKey string) {
-	opt := []bot.Option{
-		bot.WithDefaultHandler(infoHandler),
-	}
-
-	b, err := bot.New(apiKey, opt...)
+	b, err := bot.New(apiKey)
 	if err != nil {
 		Log.Panicw("could not start the bot", "err", err)
 	}
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "info", bot.MatchTypeCommand, infoHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "add", bot.MatchTypeCommand, addHandler)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "add", bot.MatchTypeCommand, handleConversation)
-
+	b.RegisterHandler(bot.HandlerTypeMessageText, "cancel", bot.MatchTypeCommand, cancelHandler)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "", bot.MatchTypeContains, conversationHandler)
 
 	Log.Infof("starting the bot")
 	b.Start(context.Background())
@@ -76,10 +79,6 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		Log.Error("Message.From is nil")
 		return
 	}
-
-	// this is step one from AddMangaConversationState
-
-
 
 	userId := update.Message.From.ID
 	Log.Infow("new add request", "userId", userId)
@@ -117,9 +116,12 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		Log.Errorw("error creating scraper", "err", err)
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
-			Text:   fmt.Sprintf("there are some problems with the bot, try again"),
+			Text:   "there are some problems with the bot, try again",
 		})
 	}
+
+	chatId := ChatID(update.Message.Chat.ID)
+	mangasMap[chatId] = mangas
 
 	// send manga titles as buttons, in the same order of the slices
 	var keyboard [][]models.KeyboardButton
@@ -143,40 +145,127 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		return
 	}
 	Log.Infow("Add message sent successfully", "chatId", update.Message.Chat.ID)
+	addMangaConvMap[chatId] = ChosenManga
 }
 
 // for now it supports only /add
-// maybe a more complex arch is needed for supporting conversations 
+// maybe a more complex arch is needed for supporting conversations
 // which start with different commands
 func conversationHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+
+	Log.Debugln("starting a conversation")
 	// get the state from the map
 	chatId := ChatID(update.Message.Chat.ID)
 	state, ok := addMangaConvMap[chatId]
 	// handle no chatId saved
 	if !ok {
-
+		Log.Errorln("userId not found in the concersation map")
+		return
 	}
-}
 
-
-// first step for /add
-// /add <manga name>
-// replies the user with list of mangas
-func mangaToAddStep(ctx context.Context, b *bot.Bot, update *models.Update) {
-
+	switch state {
+	case ChosenManga:
+		mangaChosenStep(ctx, b, update)
+	case ChoseWhatToDo:
+		actionOnMangaStep(ctx, b, update)
+	}
 }
 
 // second step for /add
 // manage the chosen manga from the list
 // replies the user with list of actions (download, read online, nothing)
 func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
+	Log.Debugf("conversation continues.. Manga was chosen. Now its time for the action")
+	chatID := ChatID(update.Message.Chat.ID)
+	chosenManga := update.Message.Text // sanitation not required
+	// get the manga chosen
+	mangas, ok := mangasMap[chatID]
+	if !ok {
+		Log.Errorf("could not find the manga in the cache")
+		// TODO add message
+		return
+	}
 
+	var manga Manga
+	for _, mangaa := range mangas {
+		if mangaa.title == chosenManga {
+			Log.Debugw("manga found", "manga", chosenManga)
+			manga = mangaa
+		}
+	}
+	if manga == (Manga{}) {
+		Log.Errorf("manga was not present in the cache")
+		return
+	}
+
+	chosenMangaMap[chatID] = manga
+	addMangaConvMap[chatID] = ChoseWhatToDo
+
+	keyboard := [][]models.KeyboardButton{
+		{{Text: Download}},
+		{{Text: ReadOnline}},
+		{{Text: DoNothing}},
+	}
+	b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: update.Message.Chat.ID,
+		Text:   "Please choose an action",
+		ReplyMarkup: &models.ReplyKeyboardMarkup{
+			Keyboard:        keyboard,
+			ResizeKeyboard:  true,
+			OneTimeKeyboard: true,
+		},
+	})
 }
 
 // final step for /add
 // user chooses what to do with the last manga
 func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
+	Log.Debugf("conversation continues.. Action was chosen")
+	chatID := ChatID(update.Message.Chat.ID)
+	choice := CommandManga(update.Message.Text)
+	Log.Debugf("user chose: %s", choice)
 
+	manga, ok := chosenMangaMap[chatID]
+	if !ok {
+		Log.Errorf("manga not found")
+	}
+
+	switch choice {
+	case Download:
+		Log.Infow("user decided to download manga", "manga", manga)
+	case ReadOnline:
+		Log.Infow("user decided to read the manga online", "manga", manga)
+		url := manga.url
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   url,
+		})
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   fmt.Sprintf("you will get a message when the last chapter of %s is released on WeebCentral", manga.title),
+		})
+	case DoNothing:
+		Log.Infow("user decided to do nothing", "manga", manga)
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   fmt.Sprintf("you will get a message when the last chapter of %s is released on WeebCentral", manga.title),
+		})
+	}
+
+	// cleanup
+	cleanUp(chatID)
+}
+
+// /cancel handler
+// cleans the maps from the chatId data
+func cancelHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	chatId := ChatID(update.Message.Chat.ID)
+	Log.Infow("deleting conversation history", "chatID", chatId)
+	cleanUp(chatId)
+	b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: update.Message.Chat.ID,
+		Text:   "conversation cancelled. Insert a new command",
+	})
 }
 
 // /add One Piece => One Piece
@@ -191,4 +280,13 @@ func parseMessage(command string, fullMessage string) (string, error) {
 	msg := strings.Join(splits, " ")
 	trimmed := strings.Trim(msg, " \n\t")
 	return trimmed, nil
+}
+
+// clean the cache of the conversation
+func cleanUp(chatId ChatID) {
+	Log.Infow("deleting conversation history", "chatID", chatId)
+	delete(addMangaConvMap, chatId)
+	delete(commandMangaMap, chatId)
+	delete(mangasMap, chatId)
+	delete(chosenMangaMap, chatId)
 }
