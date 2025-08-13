@@ -7,18 +7,17 @@ import (
 )
 
 func main() {
-	setSLogger()
+	LoggerInit()
 	err := godotenv.Load()
+
 	if err != nil {
-		panic("could not load the .env")
+		Log.Panicw("could not load the .env", "err", err)
 	}
+
 	telegramKey := os.Getenv("TELEGRAM_API_KEY")
 	if telegramKey == "" {
-		panic("TELEGRAM_API_KEY is not present in the env variables")
+		Log.Panicln("TELEGRAM_API_KEY is not present in the env variables")
 	}
 
 	StartTelegramBot(telegramKey)
 }
-
-
-
