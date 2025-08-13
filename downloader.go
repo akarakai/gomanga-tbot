@@ -4,11 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	_ "image/jpeg"
-	_ "image/png"
 	"io"
 	"net/http"
-	"strings"
 
 	"codeberg.org/go-pdf/fpdf"
 )
@@ -21,6 +18,8 @@ func DownloadPdfFromImageSrcs(imgSrcs []string, title string) ([]byte, error) {
 	if len(imgSrcs) == 0 {
 		return nil, fmt.Errorf("no image sources provided")
 	}
+
+
 
 	pdf := fpdf.NewCustom(&fpdf.InitType{
 		UnitStr: "mm",
@@ -90,14 +89,4 @@ func detectImageType(data []byte) string {
 	default:
 		return ""
 	}
-}
-
-// sanitizeFileName removes problematic characters for file systems
-func sanitizeFileName(name string) string {
-	return strings.Map(func(r rune) rune {
-		if strings.ContainsRune(`<>:"/\|?*`, r) {
-			return -1
-		}
-		return r
-	}, name)
 }

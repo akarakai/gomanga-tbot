@@ -78,6 +78,17 @@ func NewWeebCentralScraper(cfg Configuration) (*weebCentralScraper, error) {
 	}, nil
 }
 
+// No need to pass configuration 
+func NewWeebCentralScraperDefault() (*weebCentralScraper, error) {
+	cfg := Configuration{
+		headless:    true,
+		isOptimized: false,
+		browserType: Chromium,
+	}
+
+	return NewWeebCentralScraper(cfg)
+}
+
 // FindListOfMangas scrapes the list of mangas
 //
 // Returns an empty slice if no manga is found or if it encounters an error
