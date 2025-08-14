@@ -335,10 +335,5 @@ func parseMessage(command string, fullMessage string) (string, error) {
 	splits = splits[1:]
 	msg := strings.Join(splits, " ")
 	trimmed := strings.Trim(msg, " \n\t")
-
-	if trimmed == "" {
-		return "", fmt.Errorf("manga name cannot be empty")
-	}
-
 	return trimmed, nil
 }
