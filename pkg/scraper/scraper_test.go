@@ -1,4 +1,4 @@
-package main
+package scraper
 
 import (
 	"log"
@@ -7,9 +7,9 @@ import (
 
 // TODO avoid to open a new instance of the scraper each time
 // maybe the logic should be done in the scraper itself
-var cachedScraper *weebCentralScraper
+var cachedScraper *PlaywrightScraper
 
-func getScraper() *weebCentralScraper {
+func getScraper() *PlaywrightScraper {
 	if cachedScraper != nil {
 		return cachedScraper
 	}

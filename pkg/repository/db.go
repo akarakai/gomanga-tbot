@@ -1,23 +1,24 @@
-package main
+package repository
 
 import (
 	"database/sql"
 
+	"github.com/akarakai/gomanga-tbot/pkg/logger"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 type MangaRepo interface {
-	SaveManga(manga *Manga) error
-	FindMangasOfChatID(chatID ChatID) ([]Manga, error)
+	SaveManga(manga *main.Manga) error
+	FindMangasOfChatID(chatID main.ChatID) ([]main.Manga, error)
 }
 
 type ChapterRepo interface {
-	UpdateLastChapter(chapter *Chapter, mangaUrl string) error
+	UpdateLastChapter(chapter *main.Chapter, mangaUrl string) error
 }
 
 type UserRepo interface {
-	AddMangaToSaved(manga *Manga) error
-	RemoveMangaFromSaved(manga *Manga) error
+	AddMangaToSaved(manga *main.Manga) error
+	RemoveMangaFromSaved(manga *main.Manga) error
 }
 
 type MangaRepoSqlite3 struct {
@@ -44,12 +45,12 @@ type Sqlite3Database struct {
 func NewSqlite3Database(dbPath string) (*Sqlite3Database, error) {
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		Log.Errorw("could not connect to the database", "err", err)
+		logger.Log.Errorw("could not connect to the database", "err", err)
 		return nil, err
 	}
 	err = db.Ping()
 	if err != nil {
-		Log.Errorw("there was a problem when pinging to the database", "err", err)
+		logger.Log.Errorw("there was a problem when pinging to the database", "err", err)
 		return nil, err
 	}
 
@@ -100,7 +101,7 @@ func NewSqlite3Database(dbPath string) (*Sqlite3Database, error) {
 
 }
 
-func (repo *MangaRepoSqlite3) SaveManga(manga *Manga) error {
+func (repo *MangaRepoSqlite3) SaveManga(manga *main.Manga) error {
 	tx, err := repo.db.Begin()
 	if err != nil {
 		return err
@@ -117,7 +118,7 @@ func (repo *MangaRepoSqlite3) SaveManga(manga *Manga) error {
 		)
 		if err != nil {
 			tx.Rollback()
-			Log.Errorw("error when saving chapter", "chapter", manga.lastChapter, "err", err)
+			logger.Log.Errorw("error when saving chapter", "chapter", manga.lastChapter, "err", err)
 			return err
 		}
 	}
@@ -137,7 +138,7 @@ func (repo *MangaRepoSqlite3) SaveManga(manga *Manga) error {
 	)
 	if err != nil {
 		tx.Rollback()
-		Log.Errorw("error when saving manga", "manga", manga, "err", err)
+		logger.Log.Errorw("error when saving manga", "manga", manga, "err", err)
 		return err
 	}
 
@@ -145,11 +146,11 @@ func (repo *MangaRepoSqlite3) SaveManga(manga *Manga) error {
 		return err
 	}
 
-	Log.Debugw("manga saved in repo", "manga", manga.title)
+	logger.Log.Debugw("manga saved in repo", "manga", manga.title)
 	return nil
 }
 
-func (repo *MangaRepoSqlite3) FindMangasOfChatID(chatID ChatID) ([]Manga, error) {
+func (repo *MangaRepoSqlite3) FindMangasOfChatID(chatID main.ChatID) ([]main.Manga, error) {
 	rows, err := repo.db.Query(`
 		SELECT m.url, m.title, c.url, c.title, c.released_at
 		FROM mangas m
@@ -162,9 +163,9 @@ func (repo *MangaRepoSqlite3) FindMangasOfChatID(chatID ChatID) ([]Manga, error)
 	}
 	defer rows.Close()
 
-	var mangas []Manga
+	var mangas []main.Manga
 	for rows.Next() {
-		var m Manga
+		var m main.Manga
 		var chURL, chTitle sql.NullString
 		var chReleased sql.NullTime
 
@@ -173,7 +174,7 @@ func (repo *MangaRepoSqlite3) FindMangasOfChatID(chatID ChatID) ([]Manga, error)
 		}
 
 		if chURL.Valid {
-			m.lastChapter = &Chapter{
+			m.lastChapter = &main.Chapter{
 				url:        chURL.String,
 				title:      chTitle.String,
 				releasedAt: chReleased.Time,
@@ -184,7 +185,7 @@ func (repo *MangaRepoSqlite3) FindMangasOfChatID(chatID ChatID) ([]Manga, error)
 	return mangas, nil
 }
 
-func (repo *ChapterRepoSqlite3) UpdateLastChapter(chapter *Chapter, mangaUrl string) error {
+func (repo *ChapterRepoSqlite3) UpdateLastChapter(chapter *main.Chapter, mangaUrl string) error {
 	_, err := repo.db.Exec(`
 		INSERT OR REPLACE INTO chapters (url, title, released_at)
 		VALUES (?, ?, ?)`,
@@ -199,7 +200,7 @@ func (repo *ChapterRepoSqlite3) UpdateLastChapter(chapter *Chapter, mangaUrl str
 	return err
 }
 
-func (repo *UserRepoSqlite3) AddMangaToSaved(manga *Manga) error {
+func (repo *UserRepoSqlite3) AddMangaToSaved(manga *main.Manga) error {
 	_, err := repo.db.Exec(`
 		INSERT OR IGNORE INTO mangas (url, title) VALUES (?, ?)`,
 		manga.url, manga.title)
@@ -214,7 +215,7 @@ func (repo *UserRepoSqlite3) AddMangaToSaved(manga *Manga) error {
 	return err
 }
 
-func (repo *UserRepoSqlite3) RemoveMangaFromSaved(manga *Manga) error {
+func (repo *UserRepoSqlite3) RemoveMangaFromSaved(manga *main.Manga) error {
 	_, err := repo.db.Exec(`
 		DELETE FROM user_mangas WHERE manga_url = ?`, manga.url)
 	return err

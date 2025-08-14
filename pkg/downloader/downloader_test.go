@@ -1,8 +1,8 @@
-package main
+package downloader
 
-
-import "testing"
-
+import (
+	"testing"
+)
 
 func TestDownloadPdfFromImageSrcs(t *testing.T) {
 	imgSrcs := []string{

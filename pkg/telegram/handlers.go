@@ -1,39 +1,20 @@
-package main
+package telegram
 
 import (
 	bytes2 "bytes"
 	"context"
 	"fmt"
-	"strings"
-	"time"
 
 	"github.com/akarakai/gomanga-tbot/pkg/downloader"
 	"github.com/akarakai/gomanga-tbot/pkg/logger"
 	"github.com/akarakai/gomanga-tbot/pkg/model"
+	"github.com/akarakai/gomanga-tbot/pkg/repository"
 	"github.com/akarakai/gomanga-tbot/pkg/scraper"
-	"github.com/akarakai/gomanga-tbot/pkg/telegram"
 	"github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 )
 
-var convStore = telegram.NewConversationStore()
-
-// StartTelegramBot starts the bot. Panics if the bot fails to start
-func StartTelegramBot(apiKey string) {
-	b, err := bot.New(apiKey)
-	if err != nil {
-		logger.Log.Panicw("could not start the bot", "err", err)
-	}
-
-	b.RegisterHandler(bot.HandlerTypeMessageText, "info", bot.MatchTypeCommand, infoHandler)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "add", bot.MatchTypeCommand, addHandler)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "cancel", bot.MatchTypeCommand, cancelHandler)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "", bot.MatchTypeContains, conversationHandler)
-
-	logger.Log.Infof("starting the bot")
-	b.Start(context.Background())
-}
-
-func infoHandler(ctx context.Context, b *bot.Bot, update *model.Update) {
+func infoHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	const welcomeMsg = `Welcome to gomanga-tbot!
 Here you can keep track of your favourite mangas published in WeebCentral.
 You can also download the latest chapter or read directly on WeebCentral.
@@ -46,7 +27,7 @@ Commands:
 	sendMessage(ctx, b, update.Message.Chat.ID, welcomeMsg, nil)
 }
 
-func addHandler(ctx context.Context, b *bot.Bot, update *model.Update) {
+func addHandler(ctx context.Context, b *bot.Bot, update *models.Update, db repository.Database, scraper scraper.Scraper) {
 	const cmd = "/add"
 	if update.Message == nil {
 		logger.Log.Error("Update message is nil")
@@ -82,28 +63,28 @@ func addHandler(ctx context.Context, b *bot.Bot, update *model.Update) {
 		return
 	}
 
-	chatId := telegram.ChatID(update.Message.Chat.ID)
+	chatId := model.ChatID(update.Message.Chat.ID)
 	convStore.InsertMangas(chatId, mangas)
 
 	// send manga titles as buttons, in the same order of the slices
 	keyboard := createMangaKeyboard(mangas)
-	sendMessage(ctx, b, update.Message.Chat.ID, fmt.Sprintf("You have chosen: %s", msg), &model.ReplyKeyboardMarkup{
+	sendMessage(ctx, b, update.Message.Chat.ID, fmt.Sprintf("You have chosen: %s", msg), &models.ReplyKeyboardMarkup{
 		Keyboard:        keyboard,
 		ResizeKeyboard:  true,
 		OneTimeKeyboard: true,
 	})
 
 	logger.Log.Infow("Add message sent successfully", "chatId", update.Message.Chat.ID)
-	convStore.InsertAddMangaState(chatId, telegram.ChosenManga)
+	convStore.InsertAddMangaState(chatId, ChosenManga)
 }
 
 // for now it supports only /add
 // maybe a more complex arch is needed for supporting conversations
 // which start with different commands
-func conversationHandler(ctx context.Context, b *bot.Bot, update *model.Update) {
+func conversationHandler(ctx context.Context, b *bot.Bot, update *models.Update, db repository.Database, scraper scraper.Scraper) {
 	logger.Log.Debugln("starting a conversation")
 	// get the state from the map
-	chatId := telegram.ChatID(update.Message.Chat.ID)
+	chatId := model.ChatID(update.Message.Chat.ID)
 	state, err := convStore.GetAddMangaState(chatId)
 	// handle no chatId saved
 	if err != nil {
@@ -112,9 +93,9 @@ func conversationHandler(ctx context.Context, b *bot.Bot, update *model.Update) 
 	}
 
 	switch state {
-	case telegram.ChosenManga:
+	case ChosenManga:
 		mangaChosenStep(ctx, b, update)
-	case telegram.ChoseWhatToDo:
+	case ChoseWhatToDo:
 		actionOnMangaStep(ctx, b, update)
 	default:
 		panic("unhandled default case")
@@ -124,9 +105,9 @@ func conversationHandler(ctx context.Context, b *bot.Bot, update *model.Update) 
 // second step for /add
 // manage the chosen manga from the list
 // replies the user with list of actions (download, read online, nothing)
-func mangaChosenStep(ctx context.Context, b *bot.Bot, update *model.Update) {
+func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	logger.Log.Debugf("conversation continues.. Manga was chosen. Now its time for the action")
-	chatID := telegram.ChatID(update.Message.Chat.ID)
+	chatID := model.ChatID(update.Message.Chat.ID)
 	chosenManga := update.Message.Text // sanitation not required
 	// get the manga chosen
 	mangas, err := convStore.GetMangas(chatID)
@@ -138,7 +119,7 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *model.Update) {
 
 	var manga model.Manga
 	for _, mangaa := range mangas {
-		if mangaa.title == chosenManga {
+		if mangaa.Title == chosenManga {
 			logger.Log.Debugw("manga found", "manga", chosenManga)
 			manga = mangaa
 			break
@@ -160,7 +141,7 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *model.Update) {
 	}
 	defer s.Close()
 
-	chs, err := s.FindListOfChapters(manga.url, 1)
+	chs, err := s.FindListOfChapters(manga.Url, 1)
 	if err != nil {
 		logger.Log.Errorw("error when getting chapters", "err", err)
 		sendMessage(ctx, b, int64(chatID), "there was a problem with your bot, try again", nil)
@@ -168,7 +149,7 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *model.Update) {
 		return
 	}
 	ch := chs[0]
-	manga.lastChapter = &ch
+	manga.LastChapter = &ch
 
 	// save manga in repository
 	// TODO FUNZIONA MA BISOGNA SISTEMARE IL CASINO
@@ -183,22 +164,22 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *model.Update) {
 	// }
 
 	// Format the release date to be more human-readable
-	releaseDate := formatReleaseDate(ch.releasedAt)
+	releaseDate := formatReleaseDate(ch.ReleasedAt)
 
 	mangaInfo := fmt.Sprintf("📚 **%s**\n\n📖 Latest Chapter: %s\n📅 Released: %s\n\nWhat would you like to do?",
-		manga.title, ch.title, releaseDate)
+		manga.Title, ch.Title, releaseDate)
 
 	// First remove the previous keyboard and send manga info
-	sendMessage(ctx, b, int64(chatID), mangaInfo, &model.ReplyKeyboardRemove{
+	sendMessage(ctx, b, int64(chatID), mangaInfo, &models.ReplyKeyboardRemove{
 		RemoveKeyboard: true,
 	})
 
 	convStore.InsertChosenManga(chatID, manga)
-	convStore.InsertAddMangaState(chatID, telegram.ChoseWhatToDo)
+	convStore.InsertAddMangaState(chatID, ChoseWhatToDo)
 
 	// Then send the action keyboard
 	keyboard := createActionKeyboard()
-	sendMessage(ctx, b, update.Message.Chat.ID, "Please choose an action:", &model.ReplyKeyboardMarkup{
+	sendMessage(ctx, b, update.Message.Chat.ID, "Please choose an action:", &models.ReplyKeyboardMarkup{
 		Keyboard:        keyboard,
 		ResizeKeyboard:  true,
 		OneTimeKeyboard: true,
@@ -207,11 +188,11 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *model.Update) {
 
 // final step for /add
 // user chooses what to do with the last manga
-func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *model.Update) {
+func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	logger.Log.Debugf("conversation continues.. Action was chosen")
-	chatID := telegram.ChatID(update.Message.Chat.ID)
+	chatID := model.ChatID(update.Message.Chat.ID)
 	defer convStore.Clean(chatID)
-	choice := telegram.CommandManga(update.Message.Text)
+	choice := CommandManga(update.Message.Text)
 	logger.Log.Debugf("user chose: %s", choice)
 
 	manga, err := convStore.GetChosenManga(chatID)
@@ -222,7 +203,7 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *model.Update) {
 	}
 
 	switch choice {
-	case telegram.Download:
+	case Download:
 		logger.Log.Infow("user decided to download manga", "manga", manga)
 		s, err := scraper.NewWeebCentralScraperDefault()
 		if err != nil {
@@ -233,14 +214,14 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *model.Update) {
 		}
 		defer s.Close()
 
-		imgUrls, err := s.FindImgUrlsOfChapter(manga.lastChapter.url)
+		imgUrls, err := s.FindImgUrlsOfChapter(manga.LastChapter.Url)
 		if err != nil {
 			logger.Log.Errorw("error when getting chapter imgUrls", "err", err)
 			removeKeyboardFromUser(ctx, b, update.Message.Chat.ID,
 				"there was a problem when downloading the chapter, try later")
 			break
 		}
-		docTitle := fmt.Sprintf("%s-%s", manga.title, manga.lastChapter.title)
+		docTitle := fmt.Sprintf("%s-%s", manga.Title, manga.LastChapter.Title)
 		bytes, err := downloader.DownloadPdfFromImageSrcs(imgUrls, docTitle)
 		if err != nil {
 			logger.Log.Errorw("error when constructing the pdf", "err", err)
@@ -254,7 +235,7 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *model.Update) {
 
 		_, err = b.SendDocument(ctx, &bot.SendDocumentParams{
 			ChatID: update.Message.Chat.ID,
-			Document: &model.InputFileUpload{
+			Document: &models.InputFileUpload{
 				Filename: fmt.Sprintf("%s.pdf", docTitle),
 				Data:     fileReader,
 			},
@@ -266,17 +247,17 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *model.Update) {
 
 		logger.Log.Infoln("pdf sent successfully")
 
-	case telegram.ReadOnline:
+	case ReadOnline:
 		logger.Log.Infow("user decided to read the manga online", "manga", manga)
-		sendMessage(ctx, b, update.Message.Chat.ID, manga.lastChapter.url, &model.ReplyKeyboardRemove{
+		sendMessage(ctx, b, update.Message.Chat.ID, manga.LastChapter.Url, &models.ReplyKeyboardRemove{
 			RemoveKeyboard: true,
 		})
 		sendMessage(ctx, b, update.Message.Chat.ID,
-			fmt.Sprintf("You will get a message when the last chapter of %s is released on WeebCentral", manga.title), nil)
-	case telegram.DoNothing:
+			fmt.Sprintf("You will get a message when the last chapter of %s is released on WeebCentral", manga.Title), nil)
+	case DoNothing:
 		logger.Log.Infow("user decided to do nothing", "manga", manga)
 		removeKeyboardFromUser(ctx, b, update.Message.Chat.ID,
-			fmt.Sprintf("You will get a message when the last chapter of %s is released on WeebCentral", manga.title))
+			fmt.Sprintf("You will get a message when the last chapter of %s is released on WeebCentral", manga.Title))
 	default:
 		removeKeyboardFromUser(ctx, b, update.Message.Chat.ID, "Invalid choice. Please try again with /add command.")
 	}
@@ -284,113 +265,9 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *model.Update) {
 
 // /cancel handler
 // cleans the maps from the chatId data
-func cancelHandler(ctx context.Context, b *bot.Bot, update *model.Update) {
-	chatId := telegram.ChatID(update.Message.Chat.ID)
+func cancelHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	chatId := model.ChatID(update.Message.Chat.ID)
 	logger.Log.Infow("deleting conversation history", "chatID", chatId)
 	convStore.Clean(chatId)
 	removeKeyboardFromUser(ctx, b, update.Message.Chat.ID, "Conversation cancelled. Insert a new command")
-}
-
-// ========== HELPER FUNCTIONS ==========
-
-// Helper function to format release date to human-readable format
-func formatReleaseDate(releaseTime time.Time) string {
-	now := time.Now()
-	diff := now.Sub(releaseTime)
-
-	// Format relative time
-	if diff < time.Hour {
-		minutes := int(diff.Minutes())
-		if minutes < 1 {
-			return "Just now"
-		}
-		return fmt.Sprintf("%d minute%s ago", minutes, pluralS(minutes))
-	} else if diff < 24*time.Hour {
-		hours := int(diff.Hours())
-		return fmt.Sprintf("%d hour%s ago", hours, pluralS(hours))
-	} else if diff < 7*24*time.Hour {
-		days := int(diff.Hours() / 24)
-		return fmt.Sprintf("%d day%s ago", days, pluralS(days))
-	} else {
-		// For older dates, show the actual date
-		return releaseTime.Format("January 2, 2006")
-	}
-}
-
-// Helper function to add 's' for plural
-func pluralS(count int) string {
-	if count == 1 {
-		return ""
-	}
-	return "s"
-}
-
-// Helper function to reduce code duplication for sending messages
-func sendMessage(ctx context.Context, b *bot.Bot, chatID int64, text string, replyMarkup model.ReplyMarkup) {
-	if text == "" {
-		logger.Log.Warn("Attempting to send empty message, skipping")
-		return
-	}
-
-	_, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:      chatID,
-		Text:        text,
-		ReplyMarkup: replyMarkup,
-	})
-	if err != nil {
-		logger.Log.Errorw("Error sending message", "error", err, "chatId", chatID)
-	}
-}
-
-// Helper function to remove keyboard and send a message
-func removeKeyboardFromUser(ctx context.Context, b *bot.Bot, chatID int64, message string) {
-	if message == "" {
-		message = "Keyboard removed"
-	}
-
-	_, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: chatID,
-		Text:   message,
-		ReplyMarkup: &model.ReplyKeyboardRemove{
-			RemoveKeyboard: true,
-		},
-	})
-	if err != nil {
-		logger.Log.Errorw("Error removing keyboard", "error", err, "chatId", chatID)
-	}
-}
-
-// Helper function to create manga keyboard
-func createMangaKeyboard(mangas []model.Manga) [][]model.KeyboardButton {
-	var keyboard [][]model.KeyboardButton
-	for _, manga := range mangas {
-		row := []model.KeyboardButton{
-			{Text: manga.title},
-		}
-		keyboard = append(keyboard, row)
-	}
-	return keyboard
-}
-
-// Helper function to create action keyboard
-func createActionKeyboard() [][]model.KeyboardButton {
-	return [][]model.KeyboardButton{
-		{{Text: string(telegram.Download)}},
-		{{Text: string(telegram.ReadOnline)}},
-		{{Text: string(telegram.DoNothing)}},
-	}
-}
-
-// /add One Piece => One Piece
-func parseMessage(command string, fullMessage string) (string, error) {
-	if !strings.HasPrefix(fullMessage, command) {
-		return "", fmt.Errorf("not a command %s", fullMessage)
-	}
-
-	splits := strings.Split(fullMessage, " ")
-	// remove command. Note this is a single word command
-	splits = splits[1:]
-	msg := strings.Join(splits, " ")
-	trimmed := strings.Trim(msg, " \n\t")
-	return trimmed, nil
 }
