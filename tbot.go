@@ -37,13 +37,7 @@ Commands:
 /info - Show this help message
 /add <manga name> - Add a manga to your subscription list`
 
-	_, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: update.Message.Chat.ID,
-		Text:   welcomeMsg,
-	})
-	if err != nil {
-		Log.Warnw("error sending message", "err", err)
-	}
+	sendMessage(ctx, b, update.Message.Chat.ID, welcomeMsg, nil)
 }
 
 func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
@@ -63,67 +57,37 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	msg, err := parseMessage(cmd, rawMsg)
 	if err != nil {
 		Log.Debugw("error in message of user", "err", err)
-		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   "to add a manga, use \\add 'manga name', without the ''",
-		})
-		if err != nil {
-			Log.Error("Error sending add message", "error", err, "chatId", update.Message.Chat.ID)
-			return
-		}
+		sendMessage(ctx, b, update.Message.Chat.ID, "to add a manga, use \\add 'manga name', without the ''", nil)
+		return
 	}
 
 	// search the manga
 	s, err := NewWeebCentralScraperDefault()
 	if err != nil {
 		Log.Errorw("error when creating a scraper", "err", err)
-		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   fmt.Sprintf("You have chosen: %s", msg),
-		})
-		if err != nil {
-			Log.Error("Error sending add message", "error", err, "chatId", update.Message.Chat.ID)
-			return
-		}
-
+		sendMessage(ctx, b, update.Message.Chat.ID, fmt.Sprintf("You have chosen: %s", msg), nil)
+		return
 	}
 
 	mangas, err := s.FindListOfMangas(msg)
 	if err != nil {
 		Log.Errorw("error creating scraper", "err", err)
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   "there are some problems with the bot, try again",
-		})
+		sendMessage(ctx, b, update.Message.Chat.ID, "there are some problems with the bot, try again", nil)
+		return
 	}
 
 	chatId := ChatID(update.Message.Chat.ID)
 	convStore.InsertMangas(chatId, mangas)
 
 	// send manga titles as buttons, in the same order of the slices
-	var keyboard [][]models.KeyboardButton
-	for _, manga := range mangas {
-		row := []models.KeyboardButton{
-			{Text: manga.title},
-		}
-		keyboard = append(keyboard, row)
-	}
-	_, err = b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: update.Message.Chat.ID,
-		Text:   fmt.Sprintf("You have chosen: %s", msg),
-		ReplyMarkup: &models.ReplyKeyboardMarkup{
-			Keyboard:        keyboard,
-			ResizeKeyboard:  true,
-			OneTimeKeyboard: true,
-		},
+	keyboard := createMangaKeyboard(mangas)
+	sendMessage(ctx, b, update.Message.Chat.ID, fmt.Sprintf("You have chosen: %s", msg), &models.ReplyKeyboardMarkup{
+		Keyboard:        keyboard,
+		ResizeKeyboard:  true,
+		OneTimeKeyboard: true,
 	})
 
 	removeKeyboardFromUser(ctx, b, "", update.Message.Chat.ID)
-
-	if err != nil {
-		Log.Errorw("Error sending add message", "error", err, "chatId", update.Message.Chat.ID)
-		return
-	}
 	Log.Infow("Add message sent successfully", "chatId", update.Message.Chat.ID)
 	convStore.InsertAddMangaState(chatId, ChosenManga)
 }
@@ -132,7 +96,6 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 // maybe a more complex arch is needed for supporting conversations
 // which start with different commands
 func conversationHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
-
 	Log.Debugln("starting a conversation")
 	// get the state from the map
 	chatId := ChatID(update.Message.Chat.ID)
@@ -171,6 +134,7 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if mangaa.title == chosenManga {
 			Log.Debugw("manga found", "manga", chosenManga)
 			manga = mangaa
+			break
 		}
 	}
 	if manga == (Manga{}) {
@@ -178,22 +142,17 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 		return
 	}
 
+	// TODO PUT LAST CHAPTER IN MANGA SO THAT YOU HAVE INFOS
+	// mangaIndo := fmt.Sprintf("Manga: %s\nLast Chapter: %s\nReleased on: %s\nWhat would you like to do?", )
+
 	convStore.InsertChosenManga(chatID, manga)
 	convStore.InsertAddMangaState(chatID, ChoseWhatToDo)
 
-	keyboard := [][]models.KeyboardButton{
-		{{Text: string(Download)}},
-		{{Text: string(ReadOnline)}},
-		{{Text: string(DoNothing)}},
-	}
-	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: update.Message.Chat.ID,
-		Text:   "Please choose an action",
-		ReplyMarkup: &models.ReplyKeyboardMarkup{
-			Keyboard:        keyboard,
-			ResizeKeyboard:  true,
-			OneTimeKeyboard: true,
-		},
+	keyboard := createActionKeyboard()
+	sendMessage(ctx, b, update.Message.Chat.ID, "Please choose an action", &models.ReplyKeyboardMarkup{
+		Keyboard:        keyboard,
+		ResizeKeyboard:  true,
+		OneTimeKeyboard: true,
 	})
 
 	// remove keyboard choices
@@ -219,19 +178,12 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 		Log.Infow("user decided to download manga", "manga", manga)
 	case ReadOnline:
 		Log.Infow("user decided to read the manga online", "manga", manga)
-		url := manga.url
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   url,
-		})
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   fmt.Sprintf("you will get a message when the last chapter of %s is released on WeebCentral", manga.title),
-		})
+		sendMessage(ctx, b, update.Message.Chat.ID, manga.url, nil)
+		sendMessage(ctx, b, update.Message.Chat.ID, 
+			fmt.Sprintf("you will get a message when the last chapter of %s is released on WeebCentral", manga.title), nil)
 	case DoNothing:
 		Log.Infow("user decided to do nothing", "manga", manga)
-		removeKeyboardFromUser(ctx,
-			b,
+		removeKeyboardFromUser(ctx, b,
 			fmt.Sprintf("you will get a message when the last chapter of %s is released on WeebCentral", manga.title),
 			update.Message.Chat.ID)
 	}
@@ -246,20 +198,53 @@ func cancelHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatId := ChatID(update.Message.Chat.ID)
 	Log.Infow("deleting conversation history", "chatID", chatId)
 	convStore.Clean(chatId)
-	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: update.Message.Chat.ID,
-		Text:   "conversation cancelled. Insert a new command",
+	sendMessage(ctx, b, update.Message.Chat.ID, "conversation cancelled. Insert a new command", nil)
+}
+
+
+
+
+// ========== HELPER FUNCTIONS ==========
+
+
+
+// Helper function to reduce code duplication for sending messages
+func sendMessage(ctx context.Context, b *bot.Bot, chatID int64, text string, replyMarkup models.ReplyMarkup) {
+	_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID:      chatID,
+		Text:        text,
+		ReplyMarkup: replyMarkup,
 	})
+	if err != nil {
+		Log.Errorw("Error sending message", "error", err, "chatId", chatID)
+	}
 }
 
 func removeKeyboardFromUser(ctx context.Context, b *bot.Bot, text string, chatID int64) {
-	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: chatID,
-		Text:   text,
-		ReplyMarkup: &models.ReplyKeyboardRemove{
-			RemoveKeyboard: true,
-		},
+	sendMessage(ctx, b, chatID, text, &models.ReplyKeyboardRemove{
+		RemoveKeyboard: true,
 	})
+}
+
+// Helper function to create manga keyboard
+func createMangaKeyboard(mangas []Manga) [][]models.KeyboardButton {
+	var keyboard [][]models.KeyboardButton
+	for _, manga := range mangas {
+		row := []models.KeyboardButton{
+			{Text: manga.title},
+		}
+		keyboard = append(keyboard, row)
+	}
+	return keyboard
+}
+
+// Helper function to create action keyboard
+func createActionKeyboard() [][]models.KeyboardButton {
+	return [][]models.KeyboardButton{
+		{{Text: string(Download)}},
+		{{Text: string(ReadOnline)}},
+		{{Text: string(DoNothing)}},
+	}
 }
 
 // /add One Piece => One Piece
