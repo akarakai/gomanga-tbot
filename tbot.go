@@ -9,30 +9,9 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-type ChatID int64
 
-type AddMangaConversationState int
+var convStore = NewConversationStore()
 
-const (
-	StartConversation AddMangaConversationState = iota
-	ChosenManga
-	ChoseWhatToDo
-)
-
-type CommandManga string
-
-const (
-	Download   = "Download"
-	ReadOnline = "Read Online"
-	DoNothing  = "Do Nothing"
-)
-
-// stores (chatId, AddMangaConversationState)
-// TODO this is not thread safe
-var addMangaConvMap = make(map[ChatID]AddMangaConversationState)
-var commandMangaMap = make(map[ChatID]CommandManga)
-var mangasMap = make(map[ChatID][]Manga)
-var chosenMangaMap = make(map[ChatID]Manga)
 
 // StartTelegramBot starts the bot. Panics if the bot fails to start
 func StartTelegramBot(apiKey string) {
@@ -40,7 +19,7 @@ func StartTelegramBot(apiKey string) {
 	if err != nil {
 		Log.Panicw("could not start the bot", "err", err)
 	}
-
+	
 	b.RegisterHandler(bot.HandlerTypeMessageText, "info", bot.MatchTypeCommand, infoHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "add", bot.MatchTypeCommand, addHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "cancel", bot.MatchTypeCommand, cancelHandler)
@@ -121,7 +100,7 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 
 	chatId := ChatID(update.Message.Chat.ID)
-	mangasMap[chatId] = mangas
+	convStore.InsertMangas(chatId, mangas)
 
 	// send manga titles as buttons, in the same order of the slices
 	var keyboard [][]models.KeyboardButton
@@ -145,7 +124,7 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		return
 	}
 	Log.Infow("Add message sent successfully", "chatId", update.Message.Chat.ID)
-	addMangaConvMap[chatId] = ChosenManga
+	convStore.InsertAddMangaState(chatId, ChosenManga)
 }
 
 // for now it supports only /add
@@ -156,9 +135,9 @@ func conversationHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 	Log.Debugln("starting a conversation")
 	// get the state from the map
 	chatId := ChatID(update.Message.Chat.ID)
-	state, ok := addMangaConvMap[chatId]
+	state, err := convStore.GetAddMangaState(chatId)
 	// handle no chatId saved
-	if !ok {
+	if err != nil {
 		Log.Errorln("userId not found in the concersation map")
 		return
 	}
@@ -179,8 +158,8 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatID := ChatID(update.Message.Chat.ID)
 	chosenManga := update.Message.Text // sanitation not required
 	// get the manga chosen
-	mangas, ok := mangasMap[chatID]
-	if !ok {
+	mangas, err := convStore.GetMangas(chatID)
+	if err != nil {
 		Log.Errorf("could not find the manga in the cache")
 		// TODO add message
 		return
@@ -198,13 +177,13 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 		return
 	}
 
-	chosenMangaMap[chatID] = manga
-	addMangaConvMap[chatID] = ChoseWhatToDo
+	convStore.InsertChosenManga(chatID, manga)
+	convStore.InsertAddMangaState(chatID, ChoseWhatToDo)
 
 	keyboard := [][]models.KeyboardButton{
-		{{Text: Download}},
-		{{Text: ReadOnline}},
-		{{Text: DoNothing}},
+		{{ Text: string(Download) }},
+		{{ Text: string(ReadOnline) }},
+		{{ Text: string(DoNothing) }},
 	}
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
@@ -225,9 +204,10 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	choice := CommandManga(update.Message.Text)
 	Log.Debugf("user chose: %s", choice)
 
-	manga, ok := chosenMangaMap[chatID]
-	if !ok {
+	manga, err := convStore.GetChosenManga(chatID)
+	if err != nil {
 		Log.Errorf("manga not found")
+		return
 	}
 
 	switch choice {
@@ -253,7 +233,7 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 
 	// cleanup
-	cleanUp(chatID)
+	convStore.Clean(chatID)
 }
 
 // /cancel handler
@@ -261,7 +241,7 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 func cancelHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatId := ChatID(update.Message.Chat.ID)
 	Log.Infow("deleting conversation history", "chatID", chatId)
-	cleanUp(chatId)
+	convStore.Clean(chatId)
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
 		Text:   "conversation cancelled. Insert a new command",
@@ -280,13 +260,4 @@ func parseMessage(command string, fullMessage string) (string, error) {
 	msg := strings.Join(splits, " ")
 	trimmed := strings.Trim(msg, " \n\t")
 	return trimmed, nil
-}
-
-// clean the cache of the conversation
-func cleanUp(chatId ChatID) {
-	Log.Infow("deleting conversation history", "chatID", chatId)
-	delete(addMangaConvMap, chatId)
-	delete(commandMangaMap, chatId)
-	delete(mangasMap, chatId)
-	delete(chosenMangaMap, chatId)
 }
