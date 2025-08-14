@@ -1,6 +1,7 @@
 package main
 
 import (
+	bytes2 "bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -207,8 +208,47 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	switch choice {
 	case Download:
 		Log.Infow("user decided to download manga", "manga", manga)
-		removeKeyboardFromUser(ctx, b, update.Message.Chat.ID,
-			fmt.Sprintf("Download feature coming soon! You will get a message when the last chapter of %s is released on WeebCentral", manga.title))
+		s, err := NewWeebCentralScraperDefault()
+		if err != nil {
+			Log.Errorw("error when creating a scraper", "err", err)
+			removeKeyboardFromUser(ctx, b, update.Message.Chat.ID,
+				"there was a problem when downloading the chapter, try later")
+			break
+		}
+		defer s.Close()
+
+		imgUrls, err := s.FindImgUrlsOfChapter(manga.lastChapter.url)
+		if err != nil {
+			Log.Errorw("error when getting chapter imgUrls", "err", err)
+			removeKeyboardFromUser(ctx, b, update.Message.Chat.ID,
+				"there was a problem when downloading the chapter, try later")
+			break
+		}
+		docTitle := fmt.Sprintf("%s-%s", manga.title, manga.lastChapter.title)
+		bytes, err := DownloadPdfFromImageSrcs(imgUrls, docTitle)
+		if err != nil {
+			Log.Errorw("error when constructing the pdf", "err", err)
+			removeKeyboardFromUser(ctx, b, update.Message.Chat.ID,
+				"there was a problem when downloading the chapter, try later")
+			break
+		}
+		Log.Infow("pdf downloaded", "title", docTitle, "sizeBytes", len(bytes))
+		// send as pdf
+		fileReader := bytes2.NewReader(bytes)
+
+		_, err = b.SendDocument(ctx, &bot.SendDocumentParams{
+			ChatID: update.Message.Chat.ID,
+			Document: &models.InputFileUpload{
+				Filename: fmt.Sprintf("%s.pdf", docTitle),
+				Data:     fileReader,
+			},
+		})
+
+		if err != nil {
+			Log.Errorw("error sending pdf", "err", err)
+			return
+		}
+
 	case ReadOnline:
 		Log.Infow("user decided to read the manga online", "manga", manga)
 		sendMessage(ctx, b, update.Message.Chat.ID, manga.lastChapter.url, &models.ReplyKeyboardRemove{
