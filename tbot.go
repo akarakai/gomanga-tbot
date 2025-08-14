@@ -166,6 +166,18 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	ch := chs[0]
 	manga.lastChapter = &ch
 
+	// save manga in repository
+	// TODO FUNZIONA MA BISOGNA SISTEMARE IL CASINO
+	// repo, err := NewSqlite3Database("./database.db")
+	// if err != nil {
+	// 	Log.Errorw("error connecting to the database", "err", err)
+	// 	return
+	// }
+
+	// if err := repo.MangaRepo.SaveManga(&manga); err != nil {
+	// 	Log.Errorw("could not save", "err", err)
+	// }
+
 	// Format the release date to be more human-readable
 	releaseDate := formatReleaseDate(ch.releasedAt)
 

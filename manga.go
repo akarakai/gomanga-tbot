@@ -23,3 +23,5 @@ type User struct {
 	chatID ChatID // int6, unique, is IO
 	mangas []Manga
 }
+
+
