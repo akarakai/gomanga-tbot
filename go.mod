@@ -14,5 +14,6 @@ require (
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
+	github.com/mattn/go-sqlite3 v1.14.32 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 )

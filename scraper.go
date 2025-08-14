@@ -205,7 +205,6 @@ func (s *weebCentralScraper) FindListOfChapters(mangaURL string, nChaps int) ([]
 		chapters = append(chapters, Chapter{
 			title:      title,
 			url:        href,
-			mangaUrl:   mangaURL,
 			releasedAt: date,
 		})
 	}

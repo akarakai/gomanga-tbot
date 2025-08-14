@@ -243,11 +243,12 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 				Data:     fileReader,
 			},
 		})
-
 		if err != nil {
 			Log.Errorw("error sending pdf", "err", err)
 			return
 		}
+
+		Log.Infoln("pdf sent successfully")
 
 	case ReadOnline:
 		Log.Infow("user decided to read the manga online", "manga", manga)
