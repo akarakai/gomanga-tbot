@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -57,7 +58,7 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	msg, err := parseMessage(cmd, rawMsg)
 	if err != nil {
 		Log.Debugw("error in message of user", "err", err)
-		sendMessage(ctx, b, update.Message.Chat.ID, "to add a manga, use \\add 'manga name', without the ''", nil)
+		sendMessage(ctx, b, update.Message.Chat.ID, "to add a manga, use /add 'manga name', without the ''", nil)
 		return
 	}
 
@@ -87,7 +88,6 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		OneTimeKeyboard: true,
 	})
 
-	removeKeyboardFromUser(ctx, b, "", update.Message.Chat.ID)
 	Log.Infow("Add message sent successfully", "chatId", update.Message.Chat.ID)
 	convStore.InsertAddMangaState(chatId, ChosenManga)
 }
@@ -102,7 +102,7 @@ func conversationHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 	state, err := convStore.GetAddMangaState(chatId)
 	// handle no chatId saved
 	if err != nil {
-		Log.Errorln("userId not found in the concersation map")
+		Log.Errorln("userId not found in the conversation map")
 		return
 	}
 
@@ -111,6 +111,8 @@ func conversationHandler(ctx context.Context, b *bot.Bot, update *models.Update)
 		mangaChosenStep(ctx, b, update)
 	case ChoseWhatToDo:
 		actionOnMangaStep(ctx, b, update)
+	default:
+		panic("unhandled default case")
 	}
 }
 
@@ -125,7 +127,7 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	mangas, err := convStore.GetMangas(chatID)
 	if err != nil {
 		Log.Errorf("could not find the manga in the cache")
-		// TODO add message
+		sendMessage(ctx, b, int64(chatID), "Could not find the manga in cache", nil)
 		return
 	}
 
@@ -139,26 +141,51 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 	if manga == (Manga{}) {
 		Log.Errorf("manga was not present in the cache")
+		sendMessage(ctx, b, int64(chatID), "Manga not found in cache", nil)
 		return
 	}
 
-	// TODO PUT LAST CHAPTER IN MANGA SO THAT YOU HAVE INFOS
-	mangaInfo := fmt.Sprintf("Manga: %s\nLast Chapter: %s\nReleased on: %s\nWhat would you like to do?", 
-							manga.title, manga.lastChapter.title, manga.lastChapter.releasedAt)
-	sendMessage(ctx, b, int64(chatID), mangaInfo, models.ReplyKeyboardMarkup{})
+	// get last chapter of the manga
+	s, err := NewWeebCentralScraperDefault()
+	if err != nil {
+		Log.Errorw("error when creating a scraper", "err", err)
+		sendMessage(ctx, b, int64(chatID), "there was a problem with your bot, try again", nil)
+		convStore.Clean(chatID)
+		return
+	}
+	defer s.Close()
+
+	chs, err := s.FindListOfChapters(manga.url, 1)
+	if err != nil {
+		Log.Errorw("error when getting chapters", "err", err)
+		sendMessage(ctx, b, int64(chatID), "there was a problem with your bot, try again", nil)
+		convStore.Clean(chatID)
+		return
+	}
+	ch := chs[0]
+	manga.lastChapter = &ch
+
+	// Format the release date to be more human-readable
+	releaseDate := formatReleaseDate(ch.releasedAt)
+
+	mangaInfo := fmt.Sprintf("📚 **%s**\n\n📖 Latest Chapter: %s\n📅 Released: %s\n\nWhat would you like to do?",
+		manga.title, ch.title, releaseDate)
+
+	// First remove the previous keyboard and send manga info
+	sendMessage(ctx, b, int64(chatID), mangaInfo, &models.ReplyKeyboardRemove{
+		RemoveKeyboard: true,
+	})
 
 	convStore.InsertChosenManga(chatID, manga)
 	convStore.InsertAddMangaState(chatID, ChoseWhatToDo)
 
+	// Then send the action keyboard
 	keyboard := createActionKeyboard()
-	sendMessage(ctx, b, update.Message.Chat.ID, "Please choose an action", &models.ReplyKeyboardMarkup{
+	sendMessage(ctx, b, update.Message.Chat.ID, "Please choose an action:", &models.ReplyKeyboardMarkup{
 		Keyboard:        keyboard,
 		ResizeKeyboard:  true,
 		OneTimeKeyboard: true,
 	})
-
-	// remove keyboard choices
-	removeKeyboardFromUser(ctx, b, "", update.Message.Chat.ID)
 }
 
 // final step for /add
@@ -166,32 +193,36 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	Log.Debugf("conversation continues.. Action was chosen")
 	chatID := ChatID(update.Message.Chat.ID)
+	defer convStore.Clean(chatID)
 	choice := CommandManga(update.Message.Text)
 	Log.Debugf("user chose: %s", choice)
 
 	manga, err := convStore.GetChosenManga(chatID)
 	if err != nil {
 		Log.Errorf("manga not found")
+		sendMessage(ctx, b, update.Message.Chat.ID, "Manga not found in cache", nil)
 		return
 	}
 
 	switch choice {
 	case Download:
 		Log.Infow("user decided to download manga", "manga", manga)
+		removeKeyboardFromUser(ctx, b, update.Message.Chat.ID,
+			fmt.Sprintf("Download feature coming soon! You will get a message when the last chapter of %s is released on WeebCentral", manga.title))
 	case ReadOnline:
 		Log.Infow("user decided to read the manga online", "manga", manga)
-		sendMessage(ctx, b, update.Message.Chat.ID, manga.url, nil)
-		sendMessage(ctx, b, update.Message.Chat.ID, 
-			fmt.Sprintf("you will get a message when the last chapter of %s is released on WeebCentral", manga.title), nil)
+		sendMessage(ctx, b, update.Message.Chat.ID, manga.lastChapter.url, &models.ReplyKeyboardRemove{
+			RemoveKeyboard: true,
+		})
+		sendMessage(ctx, b, update.Message.Chat.ID,
+			fmt.Sprintf("You will get a message when the last chapter of %s is released on WeebCentral", manga.title), nil)
 	case DoNothing:
 		Log.Infow("user decided to do nothing", "manga", manga)
-		removeKeyboardFromUser(ctx, b,
-			fmt.Sprintf("you will get a message when the last chapter of %s is released on WeebCentral", manga.title),
-			update.Message.Chat.ID)
+		removeKeyboardFromUser(ctx, b, update.Message.Chat.ID,
+			fmt.Sprintf("You will get a message when the last chapter of %s is released on WeebCentral", manga.title))
+	default:
+		removeKeyboardFromUser(ctx, b, update.Message.Chat.ID, "Invalid choice. Please try again with /add command.")
 	}
-
-	// cleanup
-	convStore.Clean(chatID)
 }
 
 // /cancel handler
@@ -200,18 +231,50 @@ func cancelHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	chatId := ChatID(update.Message.Chat.ID)
 	Log.Infow("deleting conversation history", "chatID", chatId)
 	convStore.Clean(chatId)
-	sendMessage(ctx, b, update.Message.Chat.ID, "conversation cancelled. Insert a new command", nil)
+	removeKeyboardFromUser(ctx, b, update.Message.Chat.ID, "Conversation cancelled. Insert a new command")
 }
-
-
-
 
 // ========== HELPER FUNCTIONS ==========
 
+// Helper function to format release date to human-readable format
+func formatReleaseDate(releaseTime time.Time) string {
+	now := time.Now()
+	diff := now.Sub(releaseTime)
 
+	// Format relative time
+	if diff < time.Hour {
+		minutes := int(diff.Minutes())
+		if minutes < 1 {
+			return "Just now"
+		}
+		return fmt.Sprintf("%d minute%s ago", minutes, pluralS(minutes))
+	} else if diff < 24*time.Hour {
+		hours := int(diff.Hours())
+		return fmt.Sprintf("%d hour%s ago", hours, pluralS(hours))
+	} else if diff < 7*24*time.Hour {
+		days := int(diff.Hours() / 24)
+		return fmt.Sprintf("%d day%s ago", days, pluralS(days))
+	} else {
+		// For older dates, show the actual date
+		return releaseTime.Format("January 2, 2006")
+	}
+}
+
+// Helper function to add 's' for plural
+func pluralS(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
+}
 
 // Helper function to reduce code duplication for sending messages
 func sendMessage(ctx context.Context, b *bot.Bot, chatID int64, text string, replyMarkup models.ReplyMarkup) {
+	if text == "" {
+		Log.Warn("Attempting to send empty message, skipping")
+		return
+	}
+
 	_, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:      chatID,
 		Text:        text,
@@ -222,10 +285,22 @@ func sendMessage(ctx context.Context, b *bot.Bot, chatID int64, text string, rep
 	}
 }
 
-func removeKeyboardFromUser(ctx context.Context, b *bot.Bot, text string, chatID int64) {
-	sendMessage(ctx, b, chatID, text, &models.ReplyKeyboardRemove{
-		RemoveKeyboard: true,
+// Helper function to remove keyboard and send a message
+func removeKeyboardFromUser(ctx context.Context, b *bot.Bot, chatID int64, message string) {
+	if message == "" {
+		message = "Keyboard removed"
+	}
+
+	_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: chatID,
+		Text:   message,
+		ReplyMarkup: &models.ReplyKeyboardRemove{
+			RemoveKeyboard: true,
+		},
 	})
+	if err != nil {
+		Log.Errorw("Error removing keyboard", "error", err, "chatId", chatID)
+	}
 }
 
 // Helper function to create manga keyboard
@@ -260,5 +335,10 @@ func parseMessage(command string, fullMessage string) (string, error) {
 	splits = splits[1:]
 	msg := strings.Join(splits, " ")
 	trimmed := strings.Trim(msg, " \n\t")
+
+	if trimmed == "" {
+		return "", fmt.Errorf("manga name cannot be empty")
+	}
+
 	return trimmed, nil
 }

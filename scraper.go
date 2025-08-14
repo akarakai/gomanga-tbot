@@ -78,7 +78,7 @@ func NewWeebCentralScraper(cfg Configuration) (*weebCentralScraper, error) {
 	}, nil
 }
 
-// No need to pass configuration 
+// No need to pass configuration
 func NewWeebCentralScraperDefault() (*weebCentralScraper, error) {
 	cfg := Configuration{
 		headless:    true,
@@ -92,6 +92,8 @@ func NewWeebCentralScraperDefault() (*weebCentralScraper, error) {
 // FindListOfMangas scrapes the list of mangas
 //
 // Returns an empty slice if no manga is found or if it encounters an error
+// the retourned mangas do not contain the last chapter, for that you must use the FindListOfChapters
+// with nChaps = 1
 func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 	if query == "" {
 		log.Println("query is empty")
@@ -142,17 +144,10 @@ func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 		// for each a tag, find the url and the name
 		title, _ := aLoc.InnerText()
 		href, _ := aLoc.GetAttribute("href")
-
-
-		// find also the last chapter
-		chapters, err := s.FindListOfChapters(href, 1)
-		if err != nil {
-			return nil, err
-		}
 		mangas = append(mangas, Manga{
-			title: title,
-			url:   href,
-			lastChapter: &chapters[0],
+			title:       title,
+			url:         href,
+			lastChapter: nil,
 		})
 	}
 
@@ -281,9 +276,13 @@ func (s *weebCentralScraper) CurrentPageTitle() (string, error) {
 	return s.page.Title()
 }
 
-func (s *weebCentralScraper) Close() error {
+func (s *weebCentralScraper) Close() {
 	slog.Info("Closing the browser...")
-	return s.browser.Close()
+	err := s.browser.Close()
+	if err != nil {
+		Log.Errorw("failed to close browser", "err", err)
+		return
+	}
 }
 
 func getBrowserOptions(cfg Configuration) *playwright.BrowserTypeLaunchOptions {
