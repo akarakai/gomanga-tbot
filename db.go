@@ -5,30 +5,58 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type Sqlite3Repo struct {
-	db			*sql.DB		// can do general things
-	MangaRepo 	*MangaRepo
-	ChapterRepo *ChapterRepo
-	UserRepo 	*UserRepo
+type MangaRepo interface {
+	SaveManga(manga *Manga) error
+	FindMangasOfChatID(chatID ChatID) ([]Manga, error)	
 }
 
-type MangaRepo struct {
+type ChapterRepo interface {
+	UpdateLastChapter(chapter *Chapter, mangaUrl string) error
+}
+
+type UserRepo interface {
+	AddMangaToSaved(manga *Manga) error
+	RemoveMangaFromSaved(manga *Manga) error
+}
+
+
+type MangaRepoSqlite3 struct {
 	db *sql.DB
 }
-type ChapterRepo struct {
+type ChapterRepoSqlite3 struct {
 	db *sql.DB
 }
-type UserRepo struct {
+type UserRepoSqlite3 struct {
 	db *sql.DB
 }
 
-func NewSqlite3Repo(databasePath string) *Sqlite3Repo {
-	db, err := sql.Open("sqlite3", "./database.db")
+
+type Database interface {
+	// which methods?
+	Close() error
+}
+
+type Sqlite3Database struct {
+	db 			*sql.DB
+	MangaRepo 	MangaRepo
+	ChapterRepo ChapterRepo
+	UserRepo 	UserRepo
+}
+
+func NewSqlite3Database(dbPath string) (*Sqlite3Database, error) {
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		Log.Panicw("panic creating database", "err", err)
+		Log.Errorw("could not connect to the database", "err", err)
+		return nil, err
+	}
+	err = db.Ping()
+	if err != nil {
+		Log.Errorw("there was a problem when pinging to the database", "err", err)
+		return nil, err
 	}
 
-	// Enable foreign keys
+	// create the tables
+	// 	// Enable foreign keys
 	db.Exec(`PRAGMA foreign_keys = ON;`)
 
 	// Create chapters table
@@ -44,7 +72,7 @@ func NewSqlite3Repo(databasePath string) *Sqlite3Repo {
 	CREATE TABLE IF NOT EXISTS mangas (
 		url TEXT PRIMARY KEY,
 		title TEXT NOT NULL UNIQUE,
-		last_chapter TEXT NOT NULL,
+		last_chapter TEXT,
 		FOREIGN KEY (last_chapter) REFERENCES chapters(url) ON DELETE SET NULL
 	);`)
 
@@ -65,10 +93,35 @@ func NewSqlite3Repo(databasePath string) *Sqlite3Repo {
 		FOREIGN KEY (manga_url) REFERENCES mangas(url) ON DELETE CASCADE
 	);`)
 
-	return &Sqlite3Repo {
+
+	return &Sqlite3Database{
 		db: db,
-		MangaRepo: &MangaRepo{ db: db },
-		ChapterRepo: &ChapterRepo{ db: db },
-		UserRepo: &UserRepo{ db: db },
-	}
+		MangaRepo: &MangaRepoSqlite3{ db: db },
+		ChapterRepo: &ChapterRepoSqlite3{ db: db},
+		UserRepo: &UserRepoSqlite3{ db: db},
+	}, nil
+
+
+}
+
+
+func (repo *MangaRepoSqlite3) SaveManga(manga *Manga) error {
+	// TODO
+	return nil
+}
+func (repo *MangaRepoSqlite3) FindMangasOfChatID(chatID ChatID) ([]Manga, error)	{
+	// TODO
+	return nil, nil
+}
+
+func(repo *ChapterRepoSqlite3) UpdateLastChapter(chapter *Chapter, mangaUrl string) error {
+	return nil
+}
+
+func (repo *UserRepoSqlite3) AddMangaToSaved(manga *Manga) error {
+	return nil
+}
+
+func (repo *UserRepoSqlite3) RemoveMangaFromSaved(manga *Manga) error {
+	return nil
 } 

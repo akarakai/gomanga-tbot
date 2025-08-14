@@ -1,24 +1,25 @@
 package main
 
-import "time"
+import (
+	"time"
+)
 
 // Basic Manga struct with no behaviour
 type Manga struct {
-	title 		string
-	url   		string
-	lastChapter	*Chapter
+	title       string
+	url         string // unique, is ID
+	lastChapter *Chapter
 }
 
 type Chapter struct {
 	title      string
-	url        string
+	url        string // unique, is ID
 	releasedAt time.Time
 }
 
 // for semplicity an user has only a chatID, meaning that if he deletes
 // the chat, then he looses the data
 type User struct {
-	userID	int64
-	chatID 	int64 // maybe to do custom type ChatID and UserID
-	mangas  []Manga
+	chatID ChatID // int6, unique, is IO
+	mangas []Manga
 }
