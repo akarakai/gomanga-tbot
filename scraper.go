@@ -143,9 +143,16 @@ func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 		title, _ := aLoc.InnerText()
 		href, _ := aLoc.GetAttribute("href")
 
+
+		// find also the last chapter
+		chapters, err := s.FindListOfChapters(href, 1)
+		if err != nil {
+			return nil, err
+		}
 		mangas = append(mangas, Manga{
 			title: title,
 			url:   href,
+			lastChapter: &chapters[0],
 		})
 	}
 

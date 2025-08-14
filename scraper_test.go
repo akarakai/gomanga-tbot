@@ -61,6 +61,21 @@ func TestFindListOfMangas(t *testing.T) {
 			t.Error("Expected nil mangas")
 		}
 	})
+
+	t.Run("LastChapterIsInManga", func(t *testing.T) {
+		query := "Naruto"
+		mangas, err := s.FindListOfMangas(query)
+		if err != nil {
+			t.Errorf("should not give error")
+		}
+		for _, manga := range mangas {
+			if manga.lastChapter == nil {
+				t.Errorf("last chapter was not found")
+			}
+		}
+
+	})
+
 }
 
 func TestFindListOfChapters_Extra(t *testing.T) {

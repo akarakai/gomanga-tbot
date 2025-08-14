@@ -143,7 +143,9 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 
 	// TODO PUT LAST CHAPTER IN MANGA SO THAT YOU HAVE INFOS
-	// mangaIndo := fmt.Sprintf("Manga: %s\nLast Chapter: %s\nReleased on: %s\nWhat would you like to do?", )
+	mangaInfo := fmt.Sprintf("Manga: %s\nLast Chapter: %s\nReleased on: %s\nWhat would you like to do?", 
+							manga.title, manga.lastChapter.title, manga.lastChapter.releasedAt)
+	sendMessage(ctx, b, int64(chatID), mangaInfo, models.ReplyKeyboardMarkup{})
 
 	convStore.InsertChosenManga(chatID, manga)
 	convStore.InsertAddMangaState(chatID, ChoseWhatToDo)
