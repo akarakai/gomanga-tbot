@@ -9,9 +9,7 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-
 var convStore = NewConversationStore()
-
 
 // StartTelegramBot starts the bot. Panics if the bot fails to start
 func StartTelegramBot(apiKey string) {
@@ -19,7 +17,7 @@ func StartTelegramBot(apiKey string) {
 	if err != nil {
 		Log.Panicw("could not start the bot", "err", err)
 	}
-	
+
 	b.RegisterHandler(bot.HandlerTypeMessageText, "info", bot.MatchTypeCommand, infoHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "add", bot.MatchTypeCommand, addHandler)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "cancel", bot.MatchTypeCommand, cancelHandler)
@@ -119,6 +117,9 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 			OneTimeKeyboard: true,
 		},
 	})
+
+	removeKeyboardFromUser(ctx, b, "", update.Message.Chat.ID)
+
 	if err != nil {
 		Log.Errorw("Error sending add message", "error", err, "chatId", update.Message.Chat.ID)
 		return
@@ -181,9 +182,9 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	convStore.InsertAddMangaState(chatID, ChoseWhatToDo)
 
 	keyboard := [][]models.KeyboardButton{
-		{{ Text: string(Download) }},
-		{{ Text: string(ReadOnline) }},
-		{{ Text: string(DoNothing) }},
+		{{Text: string(Download)}},
+		{{Text: string(ReadOnline)}},
+		{{Text: string(DoNothing)}},
 	}
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
@@ -194,6 +195,9 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 			OneTimeKeyboard: true,
 		},
 	})
+
+	// remove keyboard choices
+	removeKeyboardFromUser(ctx, b, "", update.Message.Chat.ID)
 }
 
 // final step for /add
@@ -226,10 +230,10 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 		})
 	case DoNothing:
 		Log.Infow("user decided to do nothing", "manga", manga)
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   fmt.Sprintf("you will get a message when the last chapter of %s is released on WeebCentral", manga.title),
-		})
+		removeKeyboardFromUser(ctx,
+			b,
+			fmt.Sprintf("you will get a message when the last chapter of %s is released on WeebCentral", manga.title),
+			update.Message.Chat.ID)
 	}
 
 	// cleanup
@@ -245,6 +249,16 @@ func cancelHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
 		Text:   "conversation cancelled. Insert a new command",
+	})
+}
+
+func removeKeyboardFromUser(ctx context.Context, b *bot.Bot, text string, chatID int64) {
+	b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: chatID,
+		Text:   text,
+		ReplyMarkup: &models.ReplyKeyboardRemove{
+			RemoveKeyboard: true,
+		},
 	})
 }
 
