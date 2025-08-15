@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 
 	"github.com/akarakai/gomanga-tbot/pkg/logger"
 	"github.com/akarakai/gomanga-tbot/pkg/model"
@@ -9,7 +10,8 @@ import (
 
 type MangaRepo interface {
 	SaveManga(manga *model.Manga, chatID model.ChatID) error
-	FindMangasOfChatID(chatID model.ChatID) ([]model.Manga, error)
+	FindMangaByUrl(url string) (*model.Manga, error)
+	FindMangasOfUser(chatID model.ChatID) ([]model.Manga, error)
 }
 
 type MangaRepoSqlite3 struct {
@@ -26,14 +28,14 @@ func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga, chatID model.ChatID)
 	// If there’s a LastChapter, insert it
 	if manga.LastChapter != nil {
 		_, err = tx.Exec(`
-			INSERT OR REPLACE INTO chapters (Url, Title, released_at)
+			INSERT OR REPLACE INTO chapters (url, title, released_at)
 			VALUES (?, ?, ?)`,
 			manga.LastChapter.Url,
 			manga.LastChapter.Title,
 			manga.LastChapter.ReleasedAt,
 		)
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			logger.Log.Errorw("error when saving chapter", "chapter", manga.LastChapter, "err", err)
 			return err
 		}
@@ -41,7 +43,7 @@ func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga, chatID model.ChatID)
 
 	// Insert manga
 	_, err = tx.Exec(`
-		INSERT OR REPLACE INTO mangas (Url, Title, last_chapter)
+		INSERT OR REPLACE INTO mangas (url, title, last_chapter)
 		VALUES (?, ?, ?)`,
 		manga.Url,
 		manga.Title,
@@ -53,20 +55,20 @@ func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga, chatID model.ChatID)
 		}(),
 	)
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		logger.Log.Errorw("error when saving manga", "manga", manga, "err", err)
 		return err
 	}
 
 	// add also in the join table chatID with  manga url
 	_, err = tx.Exec(`
-		INSERT INTO user_mangas (user_id, manga_Url)
+		INSERT INTO user_mangas (chat_id, manga_url)
 		VALUES (?, ?)`,
 		chatID,
 		manga.Url,
 	)
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		logger.Log.Errorw("error when saving manga and user in joit table", "manga", manga, "err", err)
 		return err
 	}
@@ -79,13 +81,13 @@ func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga, chatID model.ChatID)
 	return nil
 }
 
-func (repo *MangaRepoSqlite3) FindMangasOfChatID(chatID model.ChatID) ([]model.Manga, error) {
+func (repo *MangaRepoSqlite3) FindMangasOfUser(chatID model.ChatID) ([]model.Manga, error) {
 	rows, err := repo.db.Query(`
-		SELECT m.Url, m.Title, c.Url, c.Title, c.released_at
+		SELECT m.url, m.title, c.url, c.title, c.released_at
 		FROM mangas m
-		JOIN user_mangas um ON um.manga_Url = m.Url
-		JOIN users u ON u.user_id = um.user_id
-		LEFT JOIN chapters c ON m.last_chapter = c.Url
+		JOIN user_mangas um ON um.manga_url = m.url
+		JOIN users u ON u.chat_id = um.chat_id
+		LEFT JOIN chapters c ON m.last_chapter = c.url
 		WHERE u.chat_id = ?`, chatID)
 	if err != nil {
 		return nil, err
@@ -112,4 +114,47 @@ func (repo *MangaRepoSqlite3) FindMangasOfChatID(chatID model.ChatID) ([]model.M
 		mangas = append(mangas, m)
 	}
 	return mangas, nil
+}
+
+func (repo *MangaRepoSqlite3) FindMangaByUrl(url string) (*model.Manga, error) {
+	row, err := repo.db.Query(`
+		SELECT m.url, m.title, c.url, title, c.released_at
+		FROM mangas m
+		JOIN chapters c ON m.last_chapter = c.url
+		WHERE c.url = ?
+`, url)
+	if err != nil {
+		logger.Log.Errorw("error when finding manga by url", "url", url, "err", err)
+		return nil, errors.New("error getting manga by url")
+	}
+	defer func(row *sql.Rows) {
+		err := row.Close()
+		if err != nil {
+			logger.Log.Errorw("error when closing rows", "err", err)
+		}
+	}(row)
+
+	var mangaURL sql.NullString
+	var mangaTitle sql.NullString
+
+	var chapterURL sql.NullString
+	var chapterTitle sql.NullString
+	var chapterReleased sql.NullTime
+
+	if err := row.Scan(&mangaURL, &mangaTitle, &chapterURL, &chapterTitle, &chapterReleased); err != nil {
+		logger.Log.Errorw("error when scanning manga row", "err", err)
+		return nil, err
+	}
+
+	logger.Log.Debugw("manga found successfully by url", "mangaTitle", mangaTitle, "lastCh", chapterTitle)
+	return &model.Manga{
+		Title: mangaTitle.String,
+		Url:   mangaURL.String,
+		LastChapter: &model.Chapter{
+			Title:      chapterTitle.String,
+			Url:        chapterURL.String,
+			ReleasedAt: chapterReleased.Time,
+		},
+	}, nil
+
 }

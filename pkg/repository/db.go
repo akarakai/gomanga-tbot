@@ -77,35 +77,34 @@ func loadTables(db *sql.DB) {
 	// Create chapters table
 	db.Exec(`
 	CREATE TABLE IF NOT EXISTS chapters (
-		Url TEXT PRIMARY KEY,
-		Title TEXT NOT NULL UNIQUE,
+		url TEXT PRIMARY KEY,
+		title TEXT NOT NULL UNIQUE,
 		released_at DATETIME NOT NULL
 	);`)
 
 	// Create mangas table
 	db.Exec(`
 	CREATE TABLE IF NOT EXISTS mangas (
-		Url TEXT PRIMARY KEY,
-		Title TEXT NOT NULL UNIQUE,
+		url TEXT PRIMARY KEY,
+		title TEXT NOT NULL UNIQUE,
 		last_chapter TEXT,
-		FOREIGN KEY (last_chapter) REFERENCES chapters(Url) ON DELETE SET NULL
+		FOREIGN KEY (last_chapter) REFERENCES chapters(url) ON DELETE SET NULL
 	);`)
 
 	// Create users table
 	db.Exec(`
 	CREATE TABLE IF NOT EXISTS users (
-		user_id INTEGER PRIMARY KEY,
-		chat_id INTEGER NOT NULL
+		chat_id INTEGER NOT NULL PRIMARY KEY
 	);`)
 
 	// Create user_mangas join table (many-to-many)
 	db.Exec(`
 	CREATE TABLE IF NOT EXISTS user_mangas (
-		user_id INTEGER NOT NULL,
-		manga_Url TEXT NOT NULL,
-		PRIMARY KEY (user_id, manga_Url),
-		FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-		FOREIGN KEY (manga_Url) REFERENCES mangas(Url) ON DELETE CASCADE
+		chat_id INTEGER NOT NULL,
+		manga_url TEXT NOT NULL,
+		PRIMARY KEY (chat_id, manga_url),
+		FOREIGN KEY (chat_id) REFERENCES users(chat_id) ON DELETE CASCADE,
+		FOREIGN KEY (manga_url) REFERENCES mangas(url) ON DELETE CASCADE
 	);`)
 }
 
