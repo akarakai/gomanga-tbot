@@ -37,7 +37,8 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update, db repos
 		logger.Log.Error("Message.From is nil")
 		return
 	}
-	mangaRepo := db
+	_ = db.GetMangaRepo()
+	_ = db.GetUserRepo()
 
 	userId := update.Message.From.ID
 	logger.Log.Infow("new add request", "userId", userId)
@@ -87,7 +88,7 @@ func conversationHandler(ctx context.Context, b *bot.Bot, update *models.Update,
 
 	switch state {
 	case ChosenManga:
-		mangaChosenStep(ctx, b, update)
+		mangaChosenStep(ctx, b, update, db, scraper)
 	case ChoseWhatToDo:
 		actionOnMangaStep(ctx, b, update)
 	default:
@@ -98,7 +99,7 @@ func conversationHandler(ctx context.Context, b *bot.Bot, update *models.Update,
 // second step for /add
 // manage the chosen manga from the list
 // replies the user with list of actions (download, read online, nothing)
-func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
+func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update, db repository.Database, scraper scraper.Scraper) {
 	logger.Log.Debugf("conversation continues.. Manga was chosen. Now its time for the action")
 	chatID := model.ChatID(update.Message.Chat.ID)
 	chosenManga := update.Message.Text // sanitation not required
@@ -124,17 +125,53 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 		return
 	}
 
-	// get last chapter of the manga
-	s, err := scraper.NewWeebCentralScraperDefault()
-	if err != nil {
-		logger.Log.Errorw("error when creating a scraper", "err", err)
-		sendMessage(ctx, b, int64(chatID), "there was a problem with your bot, try again", nil)
-		convStore.Clean(chatID)
-		return
+	// control if manga is already in the database of the user
+	mangaRepo := db.GetMangaRepo()
+	if mangas, err := mangaRepo.FindMangasOfUser(chatID); err == nil && len(mangas) > 0 {
+		// check if manga is present in the library of the user
+		for _, m := range mangas {
+			if m.Url == manga.Url {
+				logger.Log.Debugw("manga found", "manga", chosenManga)
+				// notify user that he is already subscribed
+				removeKeyboardFromUser(ctx, b, int64(chatID), "you already are subscribed to this manga")
+				convStore.Clean(chatID)
+				return
+			}
+		}
 	}
-	defer s.Close()
 
-	chs, err := s.FindListOfChapters(manga.Url, 1)
+	// user does not have this manga in the repository
+	// before scraping the manga, search in the database to avoid open the scraper
+	mangaInRepo, err := mangaRepo.FindMangaByUrl(manga.Url)
+	if err != nil {
+		logger.Log.Errorf("could not find the manga in the repo")
+	}
+	if mangaInRepo != nil {
+		// send to the user the manga of the database
+		logger.Log.Debugw("manga found", "manga", chosenManga)
+		lastCh := mangaInRepo.LastChapter
+		if lastCh == nil { // if db is good written, this should not happen
+			logger.Log.Errorln("manga not found in the repo")
+			return
+		}
+		releaseDate := formatReleaseDate(lastCh.ReleasedAt)
+		mangaInfoStr := fmt.Sprintf("📚 **%s**\n\n📖 Latest Chapter: %s\n📅 Released: %s\n\nWhat would you like to do?",
+			mangaInRepo.Title, lastCh.Title, releaseDate)
+		sendMessage(ctx, b, int64(chatID), mangaInfoStr, nil)
+
+		convStore.InsertChosenManga(chatID, *mangaInRepo)
+		convStore.InsertAddMangaState(chatID, ChoseWhatToDo)
+
+		keyboard := createActionKeyboard()
+		sendMessage(ctx, b, update.Message.Chat.ID, "Please choose an action:", &models.ReplyKeyboardMarkup{
+			Keyboard:        keyboard,
+			ResizeKeyboard:  true,
+			OneTimeKeyboard: true,
+		})
+
+	}
+
+	chs, err := scraper.FindListOfChapters(manga.Url, 1)
 	if err != nil {
 		logger.Log.Errorw("error when getting chapters", "err", err)
 		sendMessage(ctx, b, int64(chatID), "there was a problem with your bot, try again", nil)
@@ -143,18 +180,6 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 	ch := chs[0]
 	manga.LastChapter = &ch
-
-	// save manga in repository
-	// TODO FUNZIONA MA BISOGNA SISTEMARE IL CASINO
-	// repo, err := NewSqlite3Database("./database.db")
-	// if err != nil {
-	// 	Log.Errorw("error connecting to the database", "err", err)
-	// 	return
-	// }
-
-	// if err := repo.MangaRepo.SaveManga(&manga); err != nil {
-	// 	Log.Errorw("could not save", "err", err)
-	// }
 
 	// Format the release date to be more human-readable
 	releaseDate := formatReleaseDate(ch.ReleasedAt)

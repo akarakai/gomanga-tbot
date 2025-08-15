@@ -33,6 +33,7 @@ func NewTelegramService(ctx context.Context, apiKey string, db repository.Databa
 func (t *Service) Start() {
 
 	t.bot.RegisterHandler(bot.HandlerTypeMessageText, "info", bot.MatchTypeCommand, infoHandler)
+	t.bot.RegisterHandler(bot.HandlerTypeMessageText, "help", bot.MatchTypeCommand, infoHandler)
 	t.bot.RegisterHandler(bot.HandlerTypeMessageText, "add", bot.MatchTypeCommand, func(ctx context.Context, bot *bot.Bot, update *models.Update) {
 		addHandler(ctx, bot, update, t.db, t.scraper)
 	})
