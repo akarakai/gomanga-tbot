@@ -4,6 +4,7 @@ import (
 	bytes2 "bytes"
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/akarakai/gomanga-tbot/pkg/downloader"
 	"github.com/akarakai/gomanga-tbot/pkg/logger"
@@ -161,6 +162,12 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update, db 
 		return
 	}
 
+	
+
+
+
+
+
 	// control if manga is already in the database of the user
 	mangaRepo := db.GetMangaRepo()
 	if mangas, err := mangaRepo.FindMangasOfUser(chatID); err == nil && len(mangas) > 0 {
@@ -177,10 +184,13 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update, db 
 	}
 
 	// user does not have this manga in the repository
+	// save it
+
+
 	// before scraping the manga, search in the database to avoid open the scraper
 	mangaInRepo, err := mangaRepo.FindMangaByUrl(manga.Url)
 	if err != nil {
-		logger.Log.Errorf("could not find the manga in the repo")
+		logger.Log.Errorf("error finding the manga in the repo", "err", err)
 	}
 	if mangaInRepo != nil {
 		// send to the user the manga of the database
@@ -220,7 +230,7 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update, db 
 	// Format the release date to be more human-readable
 	releaseDate := formatReleaseDate(ch.ReleasedAt)
 
-	mangaInfo := fmt.Sprintf("📚 **%s**\n\n📖 Latest Chapter: %s\n📅 Released: %s\n\nWhat would you like to do?",
+	mangaInfo := fmt.Sprintf("📚 **%s**\n📖 Latest Chapter: %s\n📅 Released: %s\n\nWhat would you like to do?",
 		manga.Title, ch.Title, releaseDate)
 
 	// First remove the previous keyboard and send manga info
@@ -315,6 +325,34 @@ func actionOnMangaStep(ctx context.Context, b *bot.Bot, update *models.Update) {
 	default:
 		removeKeyboardFromUser(ctx, b, update.Message.Chat.ID, "Invalid choice. Please try again with /add command.")
 	}
+}
+
+// /list handler shows the list of the mangas followed by the user
+func listMangasHandler(ctx context.Context, b *bot.Bot, update *models.Update, db repository.Database) {
+	chatID := model.ChatID(update.Message.Chat.ID)
+	mangaRepo := db.GetMangaRepo()
+	mangas, err := mangaRepo.FindMangasOfUser(chatID)
+	if err != nil {
+		logger.Log.Errorw("error retrieving mangas of user", "chat_id", chatID, "err", err)
+		sendMessage(ctx, b, int64(chatID), "could not find the list o your mangas, please try again later", nil)
+		return
+	}
+	if len(mangas) == 0 {
+		logger.Log.Infow("user has no manga in his list", "chat_id", chatID)
+		sendMessage(ctx, b, int64(chatID), "you have no manga in your list. Add one with the command /add <manga name>", nil)
+		return
+	}
+
+	model.SortMangasByChapterReleased(mangas)
+
+	msgSlice := make([]string, 0, len(mangas))
+	for i, manga := range mangas {
+		msgSlice = append(msgSlice, fmt.Sprintf("%d. %s. Chapter released on: %s",
+			i, manga.Title, formatReleaseDate(manga.LastChapter.ReleasedAt)))
+	}
+	msg := strings.Join(msgSlice, "\n")
+	sendMessage(ctx, b, int64(chatID), msg, nil)
+	logger.Log.Infow("list of mangas sent", "chat_id", chatID, "nr_mangas", len(mangas))
 }
 
 // /cancel handler

@@ -107,8 +107,3 @@ func loadTables(db *sql.DB) {
 		FOREIGN KEY (manga_url) REFERENCES mangas(url) ON DELETE CASCADE
 	);`)
 }
-
-// func removeDatabaseTestFile() error {
-// 	logger.Log.Debugln("removing test.db")
-// 	return os.Remove("./test.db")
-// }

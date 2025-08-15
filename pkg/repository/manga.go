@@ -2,7 +2,6 @@ package repository
 
 import (
 	"database/sql"
-	"errors"
 
 	"github.com/akarakai/gomanga-tbot/pkg/logger"
 	"github.com/akarakai/gomanga-tbot/pkg/model"
@@ -19,6 +18,10 @@ type MangaRepoSqlite3 struct {
 }
 
 // SaveManga saves the manga in the database, along with its last chapter
+// TODO MUST CHANGE. ONE METHOD MUST SAVE THE MANGA IN THE MANGA REPO (AND LAST CHAPTER)
+// ANOTHER METHOD IN THE USER REPO MUST ADD THE MANGA IN THE JOIN TABLE
+// THEN YOU CAN COMBINE IF YOU WANT, THIS MAKE NO SENSE BECAUSE WHAT IF YOU WANT TO SAVE
+// A MANGA AND NO LINK IT TO A USER?
 func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga, chatID model.ChatID) error {
 	tx, err := repo.db.Begin()
 	if err != nil {
@@ -95,7 +98,7 @@ func (repo *MangaRepoSqlite3) FindMangasOfUser(chatID model.ChatID) ([]model.Man
 	}
 	defer rows.Close()
 
-	var mangas []model.Manga
+	mangas := []model.Manga{}
 	for rows.Next() {
 		var m model.Manga
 		var chURL, chTitle sql.NullString
@@ -118,44 +121,41 @@ func (repo *MangaRepoSqlite3) FindMangasOfUser(chatID model.ChatID) ([]model.Man
 }
 
 func (repo *MangaRepoSqlite3) FindMangaByUrl(url string) (*model.Manga, error) {
-	row, err := repo.db.Query(`
-		SELECT m.url, m.title, c.url, title, c.released_at
+	const q = `
+		SELECT m.url, m.title, c.url, c.title, c.released_at
 		FROM mangas m
-		JOIN chapters c ON m.last_chapter = c.url
-		WHERE c.url = ?
-`, url)
+		LEFT JOIN chapters c ON m.last_chapter = c.url
+		WHERE m.url = ?
+	`
+
+	rows, err := repo.db.Query(q, url)
 	if err != nil {
-		logger.Log.Errorw("error when finding manga by url", "url", url, "err", err)
-		return nil, errors.New("error getting manga by url")
+		return nil, err
 	}
-	defer func(row *sql.Rows) {
-		err := row.Close()
-		if err != nil {
-			logger.Log.Errorw("error when closing rows", "err", err)
+	defer rows.Close()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
 		}
-	}(row)
+		// no manga found
+		return nil, nil
+	}
 
-	var mangaURL sql.NullString
-	var mangaTitle sql.NullString
+	var m model.Manga
+	var chURL, chTitle sql.NullString
+	var chReleased sql.NullTime
 
-	var chapterURL sql.NullString
-	var chapterTitle sql.NullString
-	var chapterReleased sql.NullTime
-
-	if err := row.Scan(&mangaURL, &mangaTitle, &chapterURL, &chapterTitle, &chapterReleased); err != nil {
-		logger.Log.Errorw("error when scanning manga row", "err", err)
+	if err := rows.Scan(&m.Url, &m.Title, &chURL, &chTitle, &chReleased); err != nil {
 		return nil, err
 	}
 
-	logger.Log.Debugw("manga found successfully by url", "mangaTitle", mangaTitle, "lastCh", chapterTitle)
-	return &model.Manga{
-		Title: mangaTitle.String,
-		Url:   mangaURL.String,
-		LastChapter: &model.Chapter{
-			Title:      chapterTitle.String,
-			Url:        chapterURL.String,
-			ReleasedAt: chapterReleased.Time,
-		},
-	}, nil
-
+	if chURL.Valid {
+		m.LastChapter = &model.Chapter{
+			Url:        chURL.String,
+			Title:      chTitle.String,
+			ReleasedAt: chReleased.Time,
+		}
+	}
+	return &m, nil
 }

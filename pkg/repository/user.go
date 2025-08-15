@@ -9,6 +9,7 @@ import (
 
 type UserRepo interface {
 	SaveUser(chatID model.ChatID) error
+	RegisterToManga(chatID model.ChatID, mangaUrl string) error
 	FindUserByChatID(chatID model.ChatID) (*model.User, error)
 }
 
@@ -51,4 +52,19 @@ func (repo *UserRepoSqlite3) FindUserByChatID(chatID model.ChatID) (*model.User,
 	return &model.User{
 		ChatID: model.ChatID(chatIDq.Int64),
 	}, nil
+}
+
+func (repo *UserRepoSqlite3) RegisterToManga(chatID model.ChatID, mangaURL string) error {
+	_, err := repo.db.Exec(`
+		INSERT INTO user_mangas (chat_id, manga_url)
+		VALUES (?, ?)
+		ON CONFLICT(chat_id, manga_url) DO NOTHING
+	`, chatID, mangaURL)
+	if err != nil {
+		logger.Log.Errorw("register user to manga failed",
+			"chat_id", chatID, "manga_url", mangaURL, "err", err)
+		return err
+	}
+	logger.Log.Debugw("manga saved to user succesfully", "chat_id", chatID)
+	return nil
 }

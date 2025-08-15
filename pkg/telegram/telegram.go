@@ -40,6 +40,10 @@ func (t *Service) Start() {
 	func(ctx context.Context, bot *bot.Bot, update *models.Update) {
 		registrationHandler(ctx, bot, update, t.db.GetUserRepo())
 	})
+	t.bot.RegisterHandler(bot.HandlerTypeMessageText, "list", bot.MatchTypeCommand, 
+	func(ctx context.Context, bot *bot.Bot, update *models.Update) {
+		listMangasHandler(ctx, bot, update, t.db)
+	})
 	t.bot.RegisterHandler(bot.HandlerTypeMessageText, "info", bot.MatchTypeCommand, infoHandler)
 	t.bot.RegisterHandler(bot.HandlerTypeMessageText, "help", bot.MatchTypeCommand, infoHandler)
 	t.bot.RegisterHandler(bot.HandlerTypeMessageText, "add", bot.MatchTypeCommand, 
