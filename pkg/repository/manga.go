@@ -9,7 +9,7 @@ import (
 )
 
 type MangaRepo interface {
-	SaveManga(manga *model.Manga, chatID model.ChatID) error
+	SaveManga(manga *model.Manga) error
 	FindMangaByUrl(url string) (*model.Manga, error)
 	FindMangasOfUser(chatID model.ChatID) ([]model.Manga, error)
 }
@@ -19,7 +19,7 @@ type MangaRepoSqlite3 struct {
 }
 
 // SaveManga saves the manga in the database, along with its last chapter
-func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga, chatID model.ChatID) error {
+func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga) error {
 	tx, err := repo.db.Begin()
 	if err != nil {
 		return err
@@ -57,19 +57,6 @@ func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga, chatID model.ChatID)
 	if err != nil {
 		_ = tx.Rollback()
 		logger.Log.Errorw("error when saving manga", "manga", manga, "err", err)
-		return err
-	}
-
-	// add also in the join table chatID with  manga url
-	_, err = tx.Exec(`
-		INSERT INTO user_mangas (chat_id, manga_url)
-		VALUES (?, ?)`,
-		chatID,
-		manga.Url,
-	)
-	if err != nil {
-		_ = tx.Rollback()
-		logger.Log.Errorw("error when saving manga and user in joit table", "manga", manga, "err", err)
 		return err
 	}
 
@@ -119,7 +106,7 @@ func (repo *MangaRepoSqlite3) FindMangasOfUser(chatID model.ChatID) ([]model.Man
 
 func (repo *MangaRepoSqlite3) FindMangaByUrl(url string) (*model.Manga, error) {
 	row, err := repo.db.Query(`
-		SELECT m.url, m.title, c.url, title, c.released_at
+		SELECT m.url, m.title, c.url, c.title, c.released_at
 		FROM mangas m
 		JOIN chapters c ON m.last_chapter = c.url
 		WHERE c.url = ?
@@ -135,13 +122,19 @@ func (repo *MangaRepoSqlite3) FindMangaByUrl(url string) (*model.Manga, error) {
 		}
 	}(row)
 
+	// Check if there are any rows returned
+	if !row.Next() {
+		// No rows returned, handle it
+		return nil, nil
+	}
+
 	var mangaURL sql.NullString
 	var mangaTitle sql.NullString
-
 	var chapterURL sql.NullString
 	var chapterTitle sql.NullString
 	var chapterReleased sql.NullTime
 
+	// Now it's safe to scan the row
 	if err := row.Scan(&mangaURL, &mangaTitle, &chapterURL, &chapterTitle, &chapterReleased); err != nil {
 		logger.Log.Errorw("error when scanning manga row", "err", err)
 		return nil, err
@@ -157,5 +150,4 @@ func (repo *MangaRepoSqlite3) FindMangaByUrl(url string) (*model.Manga, error) {
 			ReleasedAt: chapterReleased.Time,
 		},
 	}, nil
-
 }

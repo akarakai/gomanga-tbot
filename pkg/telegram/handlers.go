@@ -136,6 +136,9 @@ func conversationHandler(ctx context.Context, b *bot.Bot, update *models.Update,
 // manage the chosen manga from the list
 // replies the user with list of actions (download, read online, nothing)
 func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update, db repository.Database, scraper scraper.Scraper) {
+	mangaRepo := db.GetMangaRepo()
+	userRepo := db.GetUserRepo()
+
 	logger.Log.Debugf("conversation continues.. Manga was chosen. Now its time for the action")
 	chatID := model.ChatID(update.Message.Chat.ID)
 	chosenManga := update.Message.Text // sanitation not required
@@ -144,9 +147,11 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update, db 
 	if err != nil {
 		logger.Log.Errorf("could not find the manga in the cache")
 		sendMessage(ctx, b, int64(chatID), "Could not find the manga in cache", nil)
+		convStore.Clean(chatID)
 		return
 	}
 
+	// this manga does not have the last chapter
 	var manga model.Manga
 	for _, mangaa := range mangas {
 		if mangaa.Title == chosenManga {
@@ -158,80 +163,70 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update, db 
 	if manga == (model.Manga{}) {
 		logger.Log.Errorf("manga was not present in the cache")
 		sendMessage(ctx, b, int64(chatID), "Manga not found in cache", nil)
+		convStore.Clean(chatID)
 		return
 	}
 
-	// control if manga is already in the database of the user
-	mangaRepo := db.GetMangaRepo()
-	if mangas, err := mangaRepo.FindMangasOfUser(chatID); err == nil && len(mangas) > 0 {
-		// check if manga is present in the library of the user
-		for _, m := range mangas {
-			if m.Url == manga.Url {
-				logger.Log.Debugw("manga found", "manga", chosenManga)
-				// notify user that he is already subscribed
-				removeKeyboardFromUser(ctx, b, int64(chatID), "you already are subscribed to this manga")
+	// find if the manga exists in the database
+	mangaDb, err := mangaRepo.FindMangaByUrl(manga.Url)
+	if err != nil {
+		logger.Log.Errorw("err", err)
+	} // manga is present in the database
+	if mangaDb != nil {
+		// check if the user is subscribed
+		userMangas, err := mangaRepo.FindMangasOfUser(chatID)
+		if err != nil {
+			logger.Log.Errorw("err", err)
+
+		}
+		for _, userManga := range userMangas {
+			if *mangaDb == userManga {
+				logger.Log.Infow("user already subscribed manga", "chat_id", chatID, "manga_title", userManga.Title)
+				sendMessage(ctx, b, int64(chatID), "You are already subscribed on this manga", nil)
 				convStore.Clean(chatID)
 				return
 			}
 		}
-	}
-
-	// user does not have this manga in the repository
-	// before scraping the manga, search in the database to avoid open the scraper
-	mangaInRepo, err := mangaRepo.FindMangaByUrl(manga.Url)
-	if err != nil {
-		logger.Log.Errorf("could not find the manga in the repo")
-	}
-	if mangaInRepo != nil {
-		// send to the user the manga of the database
-		logger.Log.Debugw("manga found", "manga", chosenManga)
-		lastCh := mangaInRepo.LastChapter
-		if lastCh == nil { // if db is good written, this should not happen
-			logger.Log.Errorln("manga not found in the repo")
+		// user is not subscribed. Subscribe now
+		if err := userRepo.SaveManga(chatID, mangaDb.Url); err != nil {
+			logger.Log.Errorw("could not save the manga in user repo", "err", err)
+			sendMessage(ctx, b, int64(chatID), "Could not save the manga", nil)
+			convStore.Clean(chatID)
 			return
 		}
-		releaseDate := formatReleaseDate(lastCh.ReleasedAt)
-		mangaInfoStr := fmt.Sprintf("📚 **%s**\n\n📖 Latest Chapter: %s\n📅 Released: %s\n\nWhat would you like to do?",
-			mangaInRepo.Title, lastCh.Title, releaseDate)
-		sendMessage(ctx, b, int64(chatID), mangaInfoStr, nil)
-
-		convStore.InsertChosenManga(chatID, *mangaInRepo)
-		convStore.InsertAddMangaState(chatID, ChoseWhatToDo)
-
-		keyboard := createActionKeyboard()
-		sendMessage(ctx, b, update.Message.Chat.ID, "Please choose an action:", &models.ReplyKeyboardMarkup{
-			Keyboard:        keyboard,
-			ResizeKeyboard:  true,
-			OneTimeKeyboard: true,
-		})
-
 	}
 
+	// manga doesn't exist in the database, we have to scrape it and then save in the user repository
 	chs, err := scraper.FindListOfChapters(manga.Url, 1)
 	if err != nil {
-		logger.Log.Errorw("error when getting chapters", "err", err)
-		sendMessage(ctx, b, int64(chatID), "there was a problem with your bot, try again", nil)
+		logger.Log.Errorw("could not find the chapters of the manga", "err", err, "manga_title", manga.Title)
+		sendMessage(ctx, b, int64(chatID), "Could not find the chapters of the manga", nil)
 		convStore.Clean(chatID)
 		return
 	}
 	ch := chs[0]
 	manga.LastChapter = &ch
+	if err := mangaRepo.SaveManga(&manga); err != nil {
+		logger.Log.Errorw("could not save the manga in the database", "err", err)
+		sendMessage(ctx, b, int64(chatID), "Could not save the manga", nil)
+		convStore.Clean(chatID)
+		return
+	}
+	if err := userRepo.SaveManga(chatID, manga.Url); err != nil {
+		logger.Log.Errorw("could not save the manga in user repo", "err", err)
+		sendMessage(ctx, b, int64(chatID), "Could not save the manga", nil)
+		convStore.Clean(chatID)
+		return
+	}
 
-	// Format the release date to be more human-readable
-	releaseDate := formatReleaseDate(ch.ReleasedAt)
-
-	mangaInfo := fmt.Sprintf("📚 **%s**\n\n📖 Latest Chapter: %s\n📅 Released: %s\n\nWhat would you like to do?",
-		manga.Title, ch.Title, releaseDate)
-
-	// First remove the previous keyboard and send manga info
-	sendMessage(ctx, b, int64(chatID), mangaInfo, &models.ReplyKeyboardRemove{
-		RemoveKeyboard: true,
-	})
+	releaseDate := formatReleaseDate(manga.LastChapter.ReleasedAt)
+	mangaInfoStr := fmt.Sprintf("📚 **%s**\n📖 Latest Chapter: %s\n📅 Released: %s\n\nWhat would you like to do?",
+		manga.Title, manga.LastChapter.Title, releaseDate)
+	sendMessage(ctx, b, int64(chatID), mangaInfoStr, nil)
 
 	convStore.InsertChosenManga(chatID, manga)
 	convStore.InsertAddMangaState(chatID, ChoseWhatToDo)
 
-	// Then send the action keyboard
 	keyboard := createActionKeyboard()
 	sendMessage(ctx, b, update.Message.Chat.ID, "Please choose an action:", &models.ReplyKeyboardMarkup{
 		Keyboard:        keyboard,
