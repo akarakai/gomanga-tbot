@@ -14,6 +14,42 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
+func startHandler(ctx context.Context, b *bot.Bot, update *models.Update, userRepo repository.UserRepo) {
+	infoHandler(ctx, b, update)
+	registrationHandler(ctx, b, update, userRepo)
+}
+
+func registrationHandler(ctx context.Context, b *bot.Bot, update *models.Update, userRepo repository.UserRepo) {
+	// save the user in the db if not present
+	chatID := model.ChatID(update.Message.Chat.ID)
+	usr, err := userRepo.FindUserByChatID(chatID)
+	if err != nil {
+		logger.Log.Errorw("error when finding user", "err", err)
+		sendMessage(ctx, b, int64(chatID), `
+There was a problem with the server and you cannot be notified by the bot in the future.
+Try again by inserting the command /start again.
+		`, nil)
+		return
+	}
+
+	if usr == nil {
+		err := userRepo.SaveUser(chatID)
+		if err != nil {
+			logger.Log.Errorw("error when saving user", "err", err)
+			sendMessage(ctx, b, int64(chatID), `
+There was a problem with the server and you cannot be notified by the bot in the future.
+Try again by inserting the command /start again.
+			`, nil)
+			return
+		}
+		logger.Log.Infow("user saved in the database", "usr_chatID", chatID)
+		sendMessage(ctx, b, int64(chatID), "you registered yourself successfully", nil)
+		return
+	}
+	logger.Log.Infow("user already in the database", "usr_chatID", chatID)
+	sendMessage(ctx, b, int64(chatID), "you are already registered", nil)
+}
+
 func infoHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	const welcomeMsg = `Welcome to gomanga-tbot!
 Here you can keep track of your favourite mangas published in WeebCentral.
@@ -22,8 +58,8 @@ Subscribe to a manga, and as soon as it's ready on WeebCentral you will be notif
 
 Commands:
 /info - Show this help message
+/register - Register yourself to get updates. Normally you are automatically registered when you entered the chat (only your chat_id is saved in the server). Call this command if you have problems.
 /add <manga name> - Add a manga to your subscription list`
-
 	sendMessage(ctx, b, update.Message.Chat.ID, welcomeMsg, nil)
 }
 
