@@ -1,4 +1,4 @@
-package main
+package scraper
 
 import (
 	"errors"
@@ -8,41 +8,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akarakai/gomanga-tbot/pkg/logger"
+	"github.com/akarakai/gomanga-tbot/pkg/model"
 	"github.com/playwright-community/playwright-go"
 )
 
-const WeebCentralBaseURL = "https://weebcentral.com"
-const WindowHeight = 400
-const WindowWidth = 400
-
-// Browser type as ENUM
-type BrowserType int
-
-const (
-	Chromium BrowserType = iota
-	Firefox
-	Webkit
-)
-
-type weebCentralScraper struct {
+type PlaywrightScraper struct {
 	pw      *playwright.Playwright
-	browser playwright.Browser        // interface
-	context playwright.BrowserContext // interface
-	page    playwright.Page           // interface
+	browser playwright.Browser
+	context playwright.BrowserContext
+	page    playwright.Page
 	cfg     Configuration
-}
-
-type Configuration struct {
-	headless bool
-	// remove many things to speed up
-	isOptimized bool
-	// firefox, chromium or webkit are supported
-	browserType BrowserType
 }
 
 // NewWeebCentralScraper creates a new instance of WeebCentralScraper and returns its pointer.
 // this function will also open a new page from a context
-func NewWeebCentralScraper(cfg Configuration) (*weebCentralScraper, error) {
+func NewWeebCentralScraper(cfg Configuration) (*PlaywrightScraper, error) {
 	pw, err := playwright.Run()
 	if err != nil {
 		return nil, err
@@ -69,7 +50,7 @@ func NewWeebCentralScraper(cfg Configuration) (*weebCentralScraper, error) {
 		return nil, err
 	}
 	log.Println("scraper created successfully")
-	return &weebCentralScraper{
+	return &PlaywrightScraper{
 		pw:      pw,
 		browser: browser,
 		context: context,
@@ -79,7 +60,7 @@ func NewWeebCentralScraper(cfg Configuration) (*weebCentralScraper, error) {
 }
 
 // No need to pass configuration
-func NewWeebCentralScraperDefault() (*weebCentralScraper, error) {
+func NewWeebCentralScraperDefault() (*PlaywrightScraper, error) {
 	cfg := Configuration{
 		headless:    true,
 		isOptimized: false,
@@ -94,7 +75,7 @@ func NewWeebCentralScraperDefault() (*weebCentralScraper, error) {
 // Returns an empty slice if no manga is found or if it encounters an error
 // the retourned mangas do not contain the last chapter, for that you must use the FindListOfChapters
 // with nChaps = 1
-func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
+func (s *PlaywrightScraper) FindListOfMangas(query string) ([]model.Manga, error) {
 	if query == "" {
 		log.Println("query is empty")
 		return nil, errors.New("query is empty")
@@ -139,15 +120,15 @@ func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 		return nil, err
 	}
 
-	mangas := make([]Manga, 0, 10)
+	mangas := make([]model.Manga, 0, 10)
 	for _, aLoc := range locators {
 		// for each a tag, find the url and the name
 		title, _ := aLoc.InnerText()
 		href, _ := aLoc.GetAttribute("href")
-		mangas = append(mangas, Manga{
-			title:       title,
-			url:         href,
-			lastChapter: nil,
+		mangas = append(mangas, model.Manga{
+			Title:       title,
+			Url:         href,
+			LastChapter: nil,
 		})
 	}
 
@@ -156,7 +137,7 @@ func (s *weebCentralScraper) FindListOfMangas(query string) ([]Manga, error) {
 }
 
 // FindListOfChapters finds the required number of most recent chapters from a manga.
-func (s *weebCentralScraper) FindListOfChapters(mangaURL string, nChaps int) ([]Chapter, error) {
+func (s *PlaywrightScraper) FindListOfChapters(mangaURL string, nChaps int) ([]model.Chapter, error) {
 	if !strings.HasPrefix(mangaURL, WeebCentralBaseURL) {
 		return nil, fmt.Errorf("url %q does not have prefix %q", mangaURL, WeebCentralBaseURL)
 	}
@@ -197,22 +178,22 @@ func (s *weebCentralScraper) FindListOfChapters(mangaURL string, nChaps int) ([]
 	}
 	chapterDivs = chapterDivs[:limit]
 
-	chapters := make([]Chapter, 0, limit)
+	chapters := make([]model.Chapter, 0, limit)
 
 	for _, chDiv := range chapterDivs {
 		title, date, href := extractChapterData(chDiv)
 		log.Printf("Extracted chapter: %s", title)
-		chapters = append(chapters, Chapter{
-			title:      title,
-			url:        href,
-			releasedAt: date,
+		chapters = append(chapters, model.Chapter{
+			Title:      title,
+			Url:        href,
+			ReleasedAt: date,
 		})
 	}
 
 	return chapters, nil
 }
 
-func (s *weebCentralScraper) FindImgUrlsOfChapter(chapterURL string) ([]string, error) {
+func (s *PlaywrightScraper) FindImgUrlsOfChapter(chapterURL string) ([]string, error) {
 	if !strings.HasPrefix(chapterURL, WeebCentralBaseURL) {
 		return nil, fmt.Errorf("url %q does not have prefix %q", chapterURL, WeebCentralBaseURL)
 	}
@@ -261,25 +242,25 @@ func (s *weebCentralScraper) FindImgUrlsOfChapter(chapterURL string) ([]string, 
 	return imgs, nil
 }
 
-func (s *weebCentralScraper) CurrentUrl() string {
+func (s *PlaywrightScraper) CurrentUrl() string {
 	if s.page == nil { // this is an interface. TODO check better interface assertion
 		return ""
 	}
 	return s.page.URL()
 }
 
-func (s *weebCentralScraper) CurrentPageTitle() (string, error) {
+func (s *PlaywrightScraper) CurrentPageTitle() (string, error) {
 	if s.page == nil { // this is an interface. TODO check better interface assertion
 		return "", errors.New("title of the page not found")
 	}
 	return s.page.Title()
 }
 
-func (s *weebCentralScraper) Close() {
+func (s *PlaywrightScraper) Close() {
 	slog.Info("Closing the browser...")
 	err := s.browser.Close()
 	if err != nil {
-		Log.Errorw("failed to close browser", "err", err)
+		logger.Log.Errorw("failed to close browser", "err", err)
 		return
 	}
 }
@@ -367,7 +348,7 @@ func extractChapterData(divLoc playwright.Locator) (title string, releasedAt tim
 	return title, releasedAt, href
 }
 
-func makeNewPage(s *weebCentralScraper) error {
+func makeNewPage(s *PlaywrightScraper) error {
 	page, err := s.context.NewPage()
 	if err != nil {
 		return err

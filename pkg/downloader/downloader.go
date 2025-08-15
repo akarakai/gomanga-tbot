@@ -1,4 +1,4 @@
-package main
+package downloader
 
 import (
 	"bytes"
@@ -18,8 +18,6 @@ func DownloadPdfFromImageSrcs(imgSrcs []string, title string) ([]byte, error) {
 	if len(imgSrcs) == 0 {
 		return nil, fmt.Errorf("no image sources provided")
 	}
-
-
 
 	pdf := fpdf.NewCustom(&fpdf.InitType{
 		UnitStr: "mm",
