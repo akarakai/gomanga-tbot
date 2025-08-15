@@ -31,9 +31,8 @@ func TestSaveManga(t *testing.T) {
 		Url:         "https://example.com/berserk",
 		LastChapter: &ch,
 	}
-	chatID := model.ChatID(1111)
 
-	if err := db.MangaRepo.SaveManga(&mg, chatID); err != nil {
+	if err := db.MangaRepo.SaveManga(&mg); err != nil {
 		t.Fatalf("SaveManga: %v", err)
 	}
 

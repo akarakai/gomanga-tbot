@@ -1,6 +1,7 @@
 package model
 
 import (
+	"sort"
 	"time"
 )
 
@@ -24,4 +25,11 @@ type Chapter struct {
 type User struct {
 	ChatID ChatID // int6, unique, is IO
 	Mangas []Manga
+}
+
+// SortMangaByRecentChapter sorts manga based on the most recent chapter's ReleasedAt date, closest to the present time.
+func SortMangaByRecentChapter(mangaList []Manga) {
+	sort.SliceStable(mangaList, func(i, j int) bool {
+		return mangaList[i].LastChapter.ReleasedAt.After(mangaList[j].LastChapter.ReleasedAt)
+	})
 }

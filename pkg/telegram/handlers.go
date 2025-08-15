@@ -4,6 +4,7 @@ import (
 	bytes2 "bytes"
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/akarakai/gomanga-tbot/pkg/downloader"
 	"github.com/akarakai/gomanga-tbot/pkg/logger"
@@ -59,8 +60,30 @@ Subscribe to a manga, and as soon as it's ready on WeebCentral you will be notif
 Commands:
 /info - Show this help message
 /register - Register yourself to get updates. Normally you are automatically registered when you entered the chat (only your chat_id is saved in the server). Call this command if you have problems.
-/add <manga name> - Add a manga to your subscription list`
+/add <manga name> - Add a manga to your subscription list
+/list - List all mangas available from the subscription list
+`
 	sendMessage(ctx, b, update.Message.Chat.ID, welcomeMsg, nil)
+}
+
+// /list handler
+func mangaListHandler(ctx context.Context, b *bot.Bot, update *models.Update, mangaRepo repository.MangaRepo) {
+	chatID := model.ChatID(update.Message.Chat.ID)
+	mangas, err := mangaRepo.FindMangasOfUser(chatID)
+	if err != nil {
+		logger.Log.Errorw("error when finding mangas", "err", err)
+		sendMessage(ctx, b, int64(update.Message.Chat.ID), "there was an error, could not find the list of mangas", nil)
+		return
+	}
+	model.SortMangaByRecentChapter(mangas)
+	msgList := make([]string, 0, len(mangas))
+	for i, m := range mangas {
+		row := fmt.Sprintf("%d. %s.\nLast chapter on: %s", i+1, m.Title, formatReleaseDate(m.LastChapter.ReleasedAt))
+		msgList = append(msgList, row)
+	}
+	msg := strings.Join(msgList, "\n\n")
+	sendMessage(ctx, b, update.Message.Chat.ID, msg, nil)
+	logger.Log.Infow("manga list sent to user", "chat_id", chatID)
 }
 
 func addHandler(ctx context.Context, b *bot.Bot, update *models.Update, db repository.Database, scraper scraper.Scraper) {
