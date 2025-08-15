@@ -90,6 +90,7 @@ func (repo *MangaRepoSqlite3) FindMangasOfUser(chatID model.ChatID) ([]model.Man
 		LEFT JOIN chapters c ON m.last_chapter = c.url
 		WHERE u.chat_id = ?`, chatID)
 	if err != nil {
+		logger.Log.Errorw("error finding mangas of the user", "chat_id", chatID)
 		return nil, err
 	}
 	defer rows.Close()
