@@ -48,15 +48,8 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update, db repos
 		return
 	}
 
-	// search the manga
-	s, err := scraper.NewWeebCentralScraperDefault()
-	if err != nil {
-		logger.Log.Errorw("error when creating a scraper", "err", err)
-		sendMessage(ctx, b, update.Message.Chat.ID, fmt.Sprintf("You have chosen: %s", msg), nil)
-		return
-	}
 
-	mangas, err := s.FindListOfMangas(msg)
+	mangas, err := scraper.FindListOfMangas(msg)
 	if err != nil {
 		logger.Log.Errorw("error creating scraper", "err", err)
 		sendMessage(ctx, b, update.Message.Chat.ID, "there are some problems with the bot, try again", nil)

@@ -1,4 +1,4 @@
-package gomanga
+package main
 
 import (
 	"context"
