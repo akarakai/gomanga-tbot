@@ -37,6 +37,7 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update, db repos
 		logger.Log.Error("Message.From is nil")
 		return
 	}
+	mangaRepo := db
 
 	userId := update.Message.From.ID
 	logger.Log.Infow("new add request", "userId", userId)
@@ -47,7 +48,6 @@ func addHandler(ctx context.Context, b *bot.Bot, update *models.Update, db repos
 		sendMessage(ctx, b, update.Message.Chat.ID, "to add a manga, use /add 'manga name', without the ''", nil)
 		return
 	}
-
 
 	mangas, err := scraper.FindListOfMangas(msg)
 	if err != nil {

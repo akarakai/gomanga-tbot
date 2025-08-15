@@ -8,6 +8,9 @@ import (
 )
 
 type Database interface {
+	GetMangaRepo() MangaRepo
+	GetUserRepo() UserRepo
+	GetChapterRepo() ChapterRepo
 	Close() error
 }
 
@@ -43,6 +46,27 @@ func NewSqlite3Database(dbPath string) (*Sqlite3Database, error) {
 
 func (s *Sqlite3Database) Close() error {
 	return s.db.Close()
+}
+
+func (s *Sqlite3Database) GetChapterRepo() ChapterRepo {
+	if s.ChapterRepo == nil {
+		logger.Log.Panicln("chapter repo not initialized")
+	}
+	return s.ChapterRepo
+}
+
+func (s *Sqlite3Database) GetUserRepo() UserRepo {
+	if s.UserRepo == nil {
+		logger.Log.Panicln("chapter repo not initialized")
+	}
+	return s.UserRepo
+}
+
+func (s *Sqlite3Database) GetMangaRepo() MangaRepo {
+	if s.MangaRepo == nil {
+		logger.Log.Panicln("chapter repo not initialized")
+	}
+	return s.MangaRepo
 }
 
 func loadTables(db *sql.DB) {
