@@ -31,11 +31,7 @@ func TestSaveManga(t *testing.T) {
 		Url:         "https://example.com/berserk",
 		LastChapter: &ch,
 	}
-	chatID := model.ChatID(1111)
-
-	if err := db.MangaRepo.SaveManga(&mg, chatID); err != nil {
-		t.Fatalf("SaveManga: %v", err)
-	}
+	
 
 	// manga exists
 	var mCount int

@@ -162,6 +162,18 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update, db 
 		return
 	}
 
+	// check if the manga is in the repository. If not, save it
+	mangaRepo := db.GetMangaRepo()
+	mangaInRepo, err := mangaRepo.FindMangaByUrl(manga.Url)
+	if err != nil {
+		logger.Log.Errorf("error finding the manga in the repo", "err", err)
+	}
+	// no manga
+	if mangaInRepo == nil {
+		if err := mangaRepo.SaveManga(&manga); err != nil {
+			logger.Log.Errorw("error saving manga", "err", err)
+		}
+	}
 	
 
 
@@ -169,7 +181,6 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update, db 
 
 
 	// control if manga is already in the database of the user
-	mangaRepo := db.GetMangaRepo()
 	if mangas, err := mangaRepo.FindMangasOfUser(chatID); err == nil && len(mangas) > 0 {
 		// check if manga is present in the library of the user
 		for _, m := range mangas {
@@ -185,13 +196,10 @@ func mangaChosenStep(ctx context.Context, b *bot.Bot, update *models.Update, db 
 
 	// user does not have this manga in the repository
 	// save it
+	userRepo := db.GetUserRepo()
+	userRepo.RegisterToManga(chatID, &)
 
-
-	// before scraping the manga, search in the database to avoid open the scraper
-	mangaInRepo, err := mangaRepo.FindMangaByUrl(manga.Url)
-	if err != nil {
-		logger.Log.Errorf("error finding the manga in the repo", "err", err)
-	}
+	
 	if mangaInRepo != nil {
 		// send to the user the manga of the database
 		logger.Log.Debugw("manga found", "manga", chosenManga)

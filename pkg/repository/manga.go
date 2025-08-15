@@ -8,7 +8,7 @@ import (
 )
 
 type MangaRepo interface {
-	SaveManga(manga *model.Manga, chatID model.ChatID) error
+	SaveManga(manga *model.Manga) error
 	FindMangaByUrl(url string) (*model.Manga, error)
 	FindMangasOfUser(chatID model.ChatID) ([]model.Manga, error)
 }
@@ -22,7 +22,7 @@ type MangaRepoSqlite3 struct {
 // ANOTHER METHOD IN THE USER REPO MUST ADD THE MANGA IN THE JOIN TABLE
 // THEN YOU CAN COMBINE IF YOU WANT, THIS MAKE NO SENSE BECAUSE WHAT IF YOU WANT TO SAVE
 // A MANGA AND NO LINK IT TO A USER?
-func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga, chatID model.ChatID) error {
+func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga) error {
 	tx, err := repo.db.Begin()
 	if err != nil {
 		return err
@@ -60,19 +60,6 @@ func (repo *MangaRepoSqlite3) SaveManga(manga *model.Manga, chatID model.ChatID)
 	if err != nil {
 		_ = tx.Rollback()
 		logger.Log.Errorw("error when saving manga", "manga", manga, "err", err)
-		return err
-	}
-
-	// add also in the join table chatID with  manga url
-	_, err = tx.Exec(`
-		INSERT INTO user_mangas (chat_id, manga_url)
-		VALUES (?, ?)`,
-		chatID,
-		manga.Url,
-	)
-	if err != nil {
-		_ = tx.Rollback()
-		logger.Log.Errorw("error when saving manga and user in joit table", "manga", manga, "err", err)
 		return err
 	}
 
