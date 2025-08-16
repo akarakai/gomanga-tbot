@@ -12,6 +12,7 @@ type MangaRepo interface {
 	SaveManga(manga *model.Manga) error
 	FindMangaByUrl(url string) (*model.Manga, error)
 	FindMangasOfUser(chatID model.ChatID) ([]model.Manga, error)
+	FindAllMangas() ([]model.Manga, error)
 }
 
 type MangaRepoSqlite3 struct {
@@ -150,4 +151,57 @@ func (repo *MangaRepoSqlite3) FindMangaByUrl(url string) (*model.Manga, error) {
 			ReleasedAt: chapterReleased.Time,
 		},
 	}, nil
+}
+func (repo *MangaRepoSqlite3) FindAllMangas() ([]model.Manga, error) {
+	rows, err := repo.db.Query(`
+		SELECT 
+			m.url, m.title, 
+			c.url, c.title, c.released_at
+		FROM mangas m
+		LEFT JOIN chapters c ON m.last_chapter = c.url
+	`)
+	if err != nil {
+		logger.Log.Errorw("could not retrieve all mangas", "err", err)
+		return nil, err
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			logger.Log.Errorw("error when closing rows", "err", cerr)
+		}
+	}()
+
+	var mangas []model.Manga
+	for rows.Next() {
+		var m model.Manga
+		var c model.Chapter
+		var chapterUrl, chapterTitle sql.NullString
+		var releasedAt sql.NullTime
+
+		// Scan values into temporary vars so we can handle NULLs properly
+		err := rows.Scan(&m.Url, &m.Title, &chapterUrl, &chapterTitle, &releasedAt)
+		if err != nil {
+			logger.Log.Errorw("scan error in FindAllMangas", "err", err)
+			return nil, err
+		}
+
+		if chapterUrl.Valid {
+			c.Url = chapterUrl.String
+			c.Title = chapterTitle.String
+			if releasedAt.Valid {
+				c.ReleasedAt = releasedAt.Time
+			}
+			m.LastChapter = &c
+		} else {
+			m.LastChapter = nil
+		}
+
+		mangas = append(mangas, m)
+	}
+
+	if err = rows.Err(); err != nil {
+		logger.Log.Errorw("iteration error in FindAllMangas", "err", err)
+		return nil, err
+	}
+
+	return mangas, nil
 }

@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"time"
 
 	"github.com/akarakai/gomanga-tbot/pkg/logger"
 	"github.com/akarakai/gomanga-tbot/pkg/repository"
@@ -64,6 +65,30 @@ func (t *Service) Start(ctx context.Context) {
 
 	logger.Log.Infof("starting the bot")
 
+	t.schedule(time.Now().Add(1 * time.Minute), time.Minute * 1, func() {
+		updater(ctx, t.bot, t.db, t.scraper)
+	})
 	
 	t.bot.Start(ctx)
 }
+
+
+func (t *Service) schedule(startTime time.Time, every time.Duration, f func ()) {
+	go func() {
+        now := time.Now()
+        if startTime.After(now) {
+            time.Sleep(startTime.Sub(now))
+        }
+
+        f()
+
+        ticker := time.NewTicker(every)
+        defer ticker.Stop()
+
+        for {
+            <-ticker.C
+            f()
+        }
+    }()
+}
+

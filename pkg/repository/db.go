@@ -75,38 +75,38 @@ func loadTables(db *sql.DB) {
 	db.Exec(`PRAGMA foreign_keys = ON;`)
 
 	// Create chapters table
-	db.Exec(`
-	CREATE TABLE IF NOT EXISTS chapters (
-		url TEXT PRIMARY KEY,
-		title TEXT NOT NULL UNIQUE,
-		released_at DATETIME NOT NULL
-	);`)
+		db.Exec(`
+		CREATE TABLE IF NOT EXISTS chapters (
+			url TEXT PRIMARY KEY,
+			title TEXT NOT NULL UNIQUE,
+			released_at DATETIME NOT NULL
+		);`)
 
-	// Create mangas table
-	db.Exec(`
-	CREATE TABLE IF NOT EXISTS mangas (
-		url TEXT PRIMARY KEY,
-		title TEXT NOT NULL UNIQUE,
-		last_chapter TEXT,
-		FOREIGN KEY (last_chapter) REFERENCES chapters(url) ON DELETE SET NULL
-	);`)
+		// Create mangas table
+		db.Exec(`
+		CREATE TABLE IF NOT EXISTS mangas (
+			url TEXT PRIMARY KEY,
+			title TEXT NOT NULL UNIQUE,
+			last_chapter TEXT,
+			FOREIGN KEY (last_chapter) REFERENCES chapters(url) ON DELETE SET NULL
+		);`)
 
-	// Create users table
-	db.Exec(`
-	CREATE TABLE IF NOT EXISTS users (
-		chat_id INTEGER NOT NULL PRIMARY KEY
-	);`)
+		// Create users table
+		db.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			chat_id INTEGER NOT NULL PRIMARY KEY
+		);`)
 
-	// Create user_mangas join table (many-to-many)
-	db.Exec(`
-	CREATE TABLE IF NOT EXISTS user_mangas (
-		chat_id INTEGER NOT NULL,
-		manga_url TEXT NOT NULL,
-		PRIMARY KEY (chat_id, manga_url),
-		FOREIGN KEY (chat_id) REFERENCES users(chat_id) ON DELETE CASCADE,
-		FOREIGN KEY (manga_url) REFERENCES mangas(url) ON DELETE CASCADE
-	);`)
-}
+		// Create user_mangas join table (many-to-many)
+		db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_mangas (
+			chat_id INTEGER NOT NULL,
+			manga_url TEXT NOT NULL,
+			PRIMARY KEY (chat_id, manga_url),
+			FOREIGN KEY (chat_id) REFERENCES users(chat_id) ON DELETE CASCADE,
+			FOREIGN KEY (manga_url) REFERENCES mangas(url) ON DELETE CASCADE
+		);`)
+	}
 
 // func removeDatabaseTestFile() error {
 // 	logger.Log.Debugln("removing test.db")

@@ -343,3 +343,72 @@ func cancelHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	convStore.Clean(chatId)
 	removeKeyboardFromUser(ctx, b, update.Message.Chat.ID, "Conversation cancelled. Insert a new command")
 }
+
+
+// send update to the users as soon as a new a
+func updater(ctx context.Context, b *bot.Bot, db repository.Database, scraper scraper.Scraper) {
+	logger.Log.Infow("starting updating the user")
+	mangas, err := db.GetMangaRepo().FindAllMangas()
+	if err != nil {
+		logger.Log.Errorw("could not get list of mangas", "err", err)
+		return
+	}
+	if len(mangas) == 0 {
+		logger.Log.Infof("no manga in the repository")
+		return
+	}
+
+	users, err := db.GetUserRepo().FindAllUsers()
+	if err != nil {
+		logger.Log.Errorw("could not get list of users", "err", err)
+		return
+	}
+	if len(users) == 0 {
+		logger.Log.Infof("no user in the repository")
+		return
+	}
+
+	// get the mangas with new chapters
+	var mangaWithNewChapters []model.Manga	// have chapters updated
+	for _, m := range mangas {
+		scrapChs, err := scraper.FindListOfChapters(m.Url, 1)
+		if err != nil {
+			logger.Log.Errorw("error scraping chapter", "err", err)
+			return
+		}
+		scrapCh := scrapChs[0]
+		if scrapCh.Url != m.LastChapter.Url {
+			logger.Log.Infow("manga with new chapter found", "manga", m.Title, "ch_date", scrapCh.ReleasedAt)
+			// new chapter was scraped
+			m.LastChapter = &scrapCh
+			mangaWithNewChapters = append(mangaWithNewChapters, m)
+		}	
+	}
+
+	logger.Log.Infof("a total of %d new chapters were found", len(mangaWithNewChapters))
+
+	// notify the users subscribed to the mangas
+	var usrNotifiedNr int 
+	for _, usr := range users {
+		for _, m := range mangaWithNewChapters {
+			if usr.HasMangaSubscription(&m) {
+				usrNotifiedNr++
+				logger.Log.Infow("user is subscribed to manga. sending update...", "chat_id", usr.ChatID, "manga", m.Title)
+				msg := fmt.Sprintf("NEW CHAPTER RELEASED\n%s\n%s\n%s\n", m.Title, m.LastChapter.Title, m.LastChapter.ReleasedAt)
+				sendMessage(ctx, b, int64(usr.ChatID), msg, nil)
+			}
+		}
+	}
+
+	logger.Log.Infof("a total of %d users were notified", usrNotifiedNr)
+
+	// update the repository
+	chapterRepo := db.GetChapterRepo()
+	for _, m := range mangaWithNewChapters {
+		if err := chapterRepo.UpdateLastChapter(m.LastChapter, m.Url); err != nil {
+			logger.Log.Errorw("there was a problem updating the chapter in the repository", "err", err)
+		}
+	}
+
+	logger.Log.Infof("finished notifying the users")
+}

@@ -3,6 +3,7 @@ package model
 import (
 	"sort"
 	"time"
+
 )
 
 type ChatID int64
@@ -32,4 +33,13 @@ func SortMangaByRecentChapter(mangaList []Manga) {
 	sort.SliceStable(mangaList, func(i, j int) bool {
 		return mangaList[i].LastChapter.ReleasedAt.After(mangaList[j].LastChapter.ReleasedAt)
 	})
+}
+
+func (u *User) HasMangaSubscription(manga *Manga) bool {
+	for _, m := range u.Mangas {
+		if m.Url == manga.Url {
+			return true
+		}
+	}
+	return false
 }
