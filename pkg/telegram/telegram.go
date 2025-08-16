@@ -14,10 +14,9 @@ type Service struct {
 	bot     *bot.Bot
 	db      repository.Database
 	scraper scraper.Scraper
-	ctx     context.Context
 }
 
-func NewTelegramService(ctx context.Context, apiKey string, db repository.Database, scraper scraper.Scraper) (*Service, error) {
+func NewTelegramService(apiKey string, db repository.Database, scraper scraper.Scraper) (*Service, error) {
 	b, err := bot.New(apiKey)
 	if err != nil {
 		return nil, err
@@ -26,11 +25,10 @@ func NewTelegramService(ctx context.Context, apiKey string, db repository.Databa
 		bot:     b,
 		db:      db,
 		scraper: scraper,
-		ctx:     ctx,
 	}, nil
 }
 
-func (t *Service) Start() {
+func (t *Service) Start(ctx context.Context) {
 
 	t.bot.RegisterHandler(bot.HandlerTypeMessageText, "start", bot.MatchTypeCommand,
 		func(ctx context.Context, bot *bot.Bot, update *models.Update) {
@@ -65,5 +63,7 @@ func (t *Service) Start() {
 		})
 
 	logger.Log.Infof("starting the bot")
-	t.bot.Start(t.ctx)
+
+	
+	t.bot.Start(ctx)
 }

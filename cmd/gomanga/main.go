@@ -35,7 +35,6 @@ func main() {
 	}
 
 	tg, err := telegram.NewTelegramService(
-		context.Background(),
 		telegramKey,
 		repo,
 		s,
@@ -45,5 +44,6 @@ func main() {
 		logger.Log.Panicw("could not create bot instance", "err", err)
 	}
 
-	tg.Start()
+	tg.Start(context.Background())
 }
+	
