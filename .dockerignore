@@ -1,0 +1,5 @@
+.gitignore
+.dockerignore
+
+.env
+database.db
