@@ -62,6 +62,7 @@ Commands:
 /register - Register yourself to get updates. Normally you are automatically registered when you entered the chat (only your chat_id is saved in the server). Call this command if you have problems.
 /add <manga name> - Add a manga to your subscription list
 /list - List all mangas available from the subscription list
+/cancel - Use this if you have problems
 `
 	sendMessage(ctx, b, update.Message.Chat.ID, welcomeMsg, nil)
 }
@@ -344,7 +345,6 @@ func cancelHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	removeKeyboardFromUser(ctx, b, update.Message.Chat.ID, "Conversation cancelled. Insert a new command")
 }
 
-
 // send update to the users as soon as a new a
 func updater(ctx context.Context, b *bot.Bot, db repository.Database, scraper scraper.Scraper) {
 	logger.Log.Infow("starting updating the user")
@@ -369,7 +369,7 @@ func updater(ctx context.Context, b *bot.Bot, db repository.Database, scraper sc
 	}
 
 	// get the mangas with new chapters
-	var mangaWithNewChapters []model.Manga	// have chapters updated
+	var mangaWithNewChapters []model.Manga // have chapters updated
 	for _, m := range mangas {
 		scrapChs, err := scraper.FindListOfChapters(m.Url, 1)
 		if err != nil {
@@ -382,13 +382,13 @@ func updater(ctx context.Context, b *bot.Bot, db repository.Database, scraper sc
 			// new chapter was scraped
 			m.LastChapter = &scrapCh
 			mangaWithNewChapters = append(mangaWithNewChapters, m)
-		}	
+		}
 	}
 
 	logger.Log.Infof("a total of %d new chapters were found", len(mangaWithNewChapters))
 
 	// notify the users subscribed to the mangas
-	var usrNotifiedNr int 
+	var usrNotifiedNr int
 	for _, usr := range users {
 		for _, m := range mangaWithNewChapters {
 			if usr.HasMangaSubscription(&m) {
