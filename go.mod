@@ -1,6 +1,6 @@
 module github.com/akarakai/gomanga-tbot
 
-go 1.24.5
+go 1.24
 
 require (
 	codeberg.org/go-pdf/fpdf v0.11.1

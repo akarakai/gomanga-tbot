@@ -65,30 +65,28 @@ func (t *Service) Start(ctx context.Context) {
 
 	logger.Log.Infof("starting the bot")
 
-	t.schedule(time.Now().Add(1 * time.Minute), time.Minute * 1, func() {
+	t.schedule(time.Now().Add(1*time.Minute), time.Hour*1, func() {
 		updater(ctx, t.bot, t.db, t.scraper)
 	})
-	
+
 	t.bot.Start(ctx)
 }
 
-
-func (t *Service) schedule(startTime time.Time, every time.Duration, f func ()) {
+func (t *Service) schedule(startTime time.Time, every time.Duration, f func()) {
 	go func() {
-        now := time.Now()
-        if startTime.After(now) {
-            time.Sleep(startTime.Sub(now))
-        }
+		now := time.Now()
+		if startTime.After(now) {
+			time.Sleep(startTime.Sub(now))
+		}
 
-        f()
+		f()
 
-        ticker := time.NewTicker(every)
-        defer ticker.Stop()
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
 
-        for {
-            <-ticker.C
-            f()
-        }
-    }()
+		for {
+			<-ticker.C
+			f()
+		}
+	}()
 }
-

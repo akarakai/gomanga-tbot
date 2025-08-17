@@ -13,10 +13,12 @@ import (
 
 func main() {
 	logger.LoggerInit()
+	logger.Log.Info("Starting Gomanga Bot")
+
 	err := godotenv.Load()
 
 	if err != nil {
-		logger.Log.Panicw("could not load the .env", "err", err)
+		logger.Log.Errorw("could not load the .env", "err", err)
 	}
 
 	telegramKey := os.Getenv("TELEGRAM_API_KEY")
@@ -46,4 +48,3 @@ func main() {
 
 	tg.Start(context.Background())
 }
-	
